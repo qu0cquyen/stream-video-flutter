@@ -4,6 +4,7 @@ version: 0.2.0
 homepage: https://getstream.io/video/
 repository: https://github.com/GetStream/stream-video-flutter
 issue_tracker: https://github.com/GetStream/stream-video-flutter/issues
+publish_to: "none"
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
