@@ -5,6 +5,7 @@ version: 0.3.2
 homepage: https://getstream.io/video/
 repository: https://github.com/GetStream/stream-video-flutter
 issue_tracker: https://github.com/GetStream/stream-video-flutter/issues
+publish_to: "none"
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -21,7 +22,11 @@ dependencies:
   meta: ^1.9.1
   plugin_platform_interface: ^2.1.6
   rxdart: ^0.27.7
-  stream_video: ^0.3.2
+  stream_video:
+    git:
+      url: https://github.com/qu0cquyen/stream-video-flutter.git
+      path: packages/stream_video
+      ref: develop
   uuid: ^4.2.1
 
 dev_dependencies:
