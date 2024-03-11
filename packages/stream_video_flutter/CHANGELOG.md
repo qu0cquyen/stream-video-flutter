@@ -1,3 +1,32 @@
+## 0.3.4
+
+* Fixed the size of the LeaveCall aciton button in `CallAppBar`
+* Added `showLeaveCallAction` property to `CallAppBar`
+
+## 0.3.3
+
+🚧 UI changes to SDK components
+
+* `CallParticipantsLabel` - removed internal padding, it sticks to the corner of the video frame by default now
+* Extracted `StreamLobbyVideo` widget from `StreamLobbyView` that can be easly reused in custom layout
+* `CallAppBar`
+    - `LeaveCallOption` moved from default call controls to `CallAppBar`
+    - Participants button removed from `CallAppBar` together with `onParticipantsInfoTap` and `participantsInfoBuilder` properties
+    - Layout Mode button removed from `CallAppBar` together with `onLayoutModeChanged` property. You can use new `ToggleLayoutOption` instead in custom layout anywhere
+* `ToggleLayoutOption` added
+* Components related to participants menu item from `CallAppBar` are removed: `CallParticipantsInfoItem`, `StreamCallParticipantsInfoMenu` and `CallParticipantsInfoOptions`
+* `StreamCallParticipantsInfoMenuTheme` is removed
+
+Other changes:
+* Added `StreamCallType` class that replaces depricated String `type` parameter
+* Exapanded `CallStats` class with more structured WebRTC statistics as `stats` field
+* Changed `raw` statistics in `CallStats` to be of a Map<Stirng, dynamic> type
+* Added `publisherStats`, `subsciberStats` and `latencyHistory` to the `CallState` that hold some of the processed statistcs 
+
+Bug fixes
+* Fixes incoming call behavior when both CallKit and Stream incoming screen component is used 
+* Fixes the issue on Android that caused missed call notification when ringing with reused call id
+
 ## 0.3.2
 
 🐞 Fixed

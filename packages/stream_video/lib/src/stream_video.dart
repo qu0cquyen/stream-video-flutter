@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../open_api/video/coordinator/api.dart' as open;
 import 'call/call.dart';
 import 'call/call_ringing_state.dart';
+import 'call/call_type.dart';
 import 'coordinator/coordinator_client.dart';
 import 'coordinator/models/coordinator_events.dart';
 import 'coordinator/open_api/coordinator_client_open_api.dart';
@@ -384,7 +385,7 @@ class StreamVideo {
         event.data.ringing) {
       _logger.v(() => '[onCoordinatorEvent] onCallRinging: ${event.data}');
       final call = _makeCallFromRinging(data: event.data);
-      _state.incomingCall.emit(call);
+      _state.incomingCall.value = call;
     } else if (event is CoordinatorConnectedEvent) {
       _logger.i(() => '[onCoordinatorEvent] connected ${event.userId}');
       _connectionState = ConnectionState.connected(
@@ -457,12 +458,20 @@ class StreamVideo {
   }
 
   Call makeCall({
-    required String type,
+    @Deprecated('Use callType instead') String? type,
+    StreamCallType? callType,
     required String id,
     CallPreferences? preferences,
   }) {
+    assert(
+      type != null || callType != null,
+      'Either type or callType must be provided',
+    );
     return Call(
-      callCid: StreamCallCid.from(type: type, id: id),
+      callCid: StreamCallCid.from(
+        type: callType ?? StreamCallType.fromString(type!),
+        id: id,
+      ),
       coordinatorClient: _client,
       currentUser: _state.user,
       setActiveCall: _state.setActiveCall,
@@ -575,26 +584,30 @@ class StreamVideo {
     final callCid = payload['call_cid'] as String?;
     if (callCid == null) return false;
 
+    final callUUID = const Uuid().v4();
     var callId = const Uuid().v4();
-    var callType = 'default';
+    var callType = StreamCallType();
 
     final splitCid = callCid.split(':');
     if (splitCid.length == 2) {
-      callType = splitCid.first;
+      callType = StreamCallType.fromString(splitCid.first);
       callId = splitCid.last;
     }
 
     final createdById = payload['created_by_id'] as String?;
     final createdByName = payload['created_by_display_name'] as String?;
 
-    final callRingingState =
-        await getCallRingingState(type: callType, id: callId);
+    final callRingingState = await getCallRingingState(
+      type: callType.value,
+      callType: callType,
+      id: callId,
+    );
 
     switch (callRingingState) {
       case CallRingingState.ringing:
         unawaited(
           manager.showIncomingCall(
-            uuid: callId,
+            uuid: callUUID,
             handle: createdById,
             nameCaller: createdByName,
             callCid: callCid,
@@ -608,7 +621,7 @@ class StreamVideo {
       case CallRingingState.ended:
         unawaited(
           manager.showMissedCall(
-            uuid: callId,
+            uuid: callUUID,
             handle: createdById,
             nameCaller: createdByName,
             callCid: callCid,
@@ -619,10 +632,17 @@ class StreamVideo {
   }
 
   Future<CallRingingState> getCallRingingState({
-    required String type,
+    @Deprecated('Use callType instead') String? type,
+    StreamCallType? callType,
     required String id,
   }) async {
-    final call = makeCall(type: type, id: id);
+    assert(
+      type != null || callType != null,
+      'Either type or callType must be provided',
+    );
+
+    final call =
+        makeCall(type: callType?.value ?? type, callType: callType, id: id);
     final callResult = await call.get();
 
     return callResult.fold(
@@ -632,12 +652,6 @@ class StreamVideo {
       },
       success: (success) {
         final callData = success.data;
-
-        if (callData.metadata.details.endedAt != null) {
-          _logger.e(() => '[getCallRingingState] call already ended');
-
-          return CallRingingState.ended;
-        }
 
         if (callData.metadata.session.acceptedBy
             .containsKey(_state.currentUser.id)) {
@@ -679,6 +693,10 @@ class StreamVideo {
       return const Result.failure(
         VideoError(message: 'Push notification manager not initialized.'),
       );
+    }
+
+    if (_state.incomingCall.valueOrNull?.callCid.value == cid) {
+      return Result.success(_state.incomingCall.value);
     }
 
     final callCid = StreamCallCid(cid: cid);
