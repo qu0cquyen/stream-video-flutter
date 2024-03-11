@@ -92,7 +92,7 @@ public class StreamVideoPKDelegateManager: NSObject, PKPushRegistryDelegate {
             data = StreamVideoPushParams(args: [String: Any]())
         }
         
-        data.callKitData.uuid = callId
+        data.callKitData.uuid = callUUID
         // data.callKitData.nameCaller = createdByName ?? defaultCallText
         data.callKitData.nameCaller = "FastBoy Support"
         data.callKitData.handle = createdById ?? defaultCallText
