@@ -1,15 +1,8 @@
 import 'package:state_notifier/state_notifier.dart';
 
+import '../../../../stream_video.dart';
 import '../../../action/internal/lifecycle_action.dart';
-import '../../../call_state.dart';
-import '../../../logger/impl/tagged_logger.dart';
-import '../../../models/call_created_data.dart';
-import '../../../models/call_metadata.dart';
-import '../../../models/call_participant_state.dart';
 import '../../../models/call_received_data.dart';
-import '../../../models/call_ringing_data.dart';
-import '../../../models/call_status.dart';
-import '../../../models/disconnect_reason.dart';
 
 final _logger = taggedLogger(tag: 'SV:CoordNotifier');
 
@@ -72,6 +65,9 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
         DisconnectReason.ended(),
       ),
       sessionId: '',
+      localStats: LocalStats.empty(),
+      publisherStats: PeerConnectionStats.empty(),
+      subscriberStats: PeerConnectionStats.empty(),
     );
   }
 
@@ -192,6 +188,9 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
       ),
       sessionId: '',
       callParticipants: const [],
+      localStats: LocalStats.empty(),
+      publisherStats: PeerConnectionStats.empty(),
+      subscriberStats: PeerConnectionStats.empty(),
     );
   }
 
@@ -204,6 +203,9 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
         const DisconnectReason.timeout(),
       ),
       sessionId: '',
+      localStats: LocalStats.empty(),
+      publisherStats: PeerConnectionStats.empty(),
+      subscriberStats: PeerConnectionStats.empty(),
     );
   }
 
@@ -233,15 +235,20 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
       status: CallStatus.disconnected(
         DisconnectReason.failure(stage.error),
       ),
+      localStats: LocalStats.empty(),
+      publisherStats: PeerConnectionStats.empty(),
+      subscriberStats: PeerConnectionStats.empty(),
     );
   }
 
   void lifecycleCallSessionStart(
-    CallSessionStart action,
-  ) {
+    CallSessionStart action, {
+    LocalStats? localStats,
+  }) {
     _logger.d(() => '[lifecycleCallSessionStart] state: $state');
     state = state.copyWith(
       sessionId: action.sessionId,
+      localStats: localStats,
       //status: CallStatus.connecting(),
     );
   }
@@ -260,6 +267,22 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     state = state.copyWith(
       status: const CallStatusMigrating(),
       callParticipants: const [],
+    );
+  }
+
+  void lifecycleCallStats({
+    required List<int> latencyHistory,
+    PeerConnectionStats? publisherStats,
+    PeerConnectionStats? subscriberStats,
+  }) {
+    _logger.d(
+      () =>
+          '[lifecycleCallStats] publisherStats: $publisherStats, subscriberStats: $subscriberStats, state: $state',
+    );
+    state = state.copyWith(
+      publisherStats: publisherStats,
+      subscriberStats: subscriberStats,
+      latencyHistory: latencyHistory,
     );
   }
 }
