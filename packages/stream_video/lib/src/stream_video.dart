@@ -404,7 +404,9 @@ class StreamVideo {
     try {
       final activeCallCid = _state.activeCall.valueOrNull?.callCid;
 
-      if (state.isPaused && activeCallCid == null) {
+      if (state.isPaused &&
+          activeCallCid == null &&
+          !_options.keepConnectionsAliveWhenInBackground) {
         _logger.i(() => '[onAppState] close connection');
         _subscriptions.cancel(_idEvents);
         await _client.closeConnection();
@@ -598,6 +600,7 @@ class StreamVideo {
     final createdByName = payload['created_by_display_name'] as String?;
 
     final callRingingState = await getCallRingingState(
+      // ignore: deprecated_member_use_from_same_package
       type: callType.value,
       callType: callType,
       id: callId,
@@ -641,8 +644,12 @@ class StreamVideo {
       'Either type or callType must be provided',
     );
 
-    final call =
-        makeCall(type: callType?.value ?? type, callType: callType, id: id);
+    final call = makeCall(
+      // ignore: deprecated_member_use_from_same_package
+      type: callType?.value ?? type,
+      callType: callType,
+      id: id,
+    );
     final callResult = await call.get();
 
     return callResult.fold(
@@ -775,6 +782,7 @@ class StreamVideoOptions {
     this.muteAudioWhenInBackground = false,
     this.autoConnect = true,
     this.includeUserDetailsForAutoConnect = true,
+    this.keepConnectionsAliveWhenInBackground = false,
   });
 
   final String coordinatorRpcUrl;
@@ -794,4 +802,5 @@ class StreamVideoOptions {
   final bool muteAudioWhenInBackground;
   final bool autoConnect;
   final bool includeUserDetailsForAutoConnect;
+  final bool keepConnectionsAliveWhenInBackground;
 }

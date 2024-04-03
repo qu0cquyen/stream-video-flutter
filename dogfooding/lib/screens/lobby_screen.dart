@@ -35,18 +35,28 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final cameraTrack = _cameraTrack;
     if (cameraTrack != null) {
       options = options.copyWith(
-        camera: TrackOption.provided(cameraTrack),
+        camera: TrackOption.enabled(),
       );
     }
 
     final microphoneTrack = _microphoneTrack;
     if (microphoneTrack != null) {
       options = options.copyWith(
-        microphone: TrackOption.provided(microphoneTrack),
+        microphone: TrackOption.enabled(),
       );
     }
 
     widget.onJoinCallPressed(options);
+  }
+
+  @override
+  void dispose() {
+    _cameraTrack?.stop();
+    _microphoneTrack?.stop();
+
+    _cameraTrack = null;
+    _microphoneTrack = null;
+    super.dispose();
   }
 
   @override
