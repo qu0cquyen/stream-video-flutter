@@ -25,6 +25,7 @@ import '../utils/standard.dart';
 import '../webrtc/model/stats/rtc_ice_candidate_pair.dart';
 import '../webrtc/model/stats/rtc_inbound_rtp_video_stream.dart';
 import '../webrtc/model/stats/rtc_outbound_rtp_video_stream.dart';
+import '../webrtc/rtc_manager.dart';
 import '../webrtc/sdp/editor/sdp_editor_impl.dart';
 import '../webrtc/sdp/policy/sdp_policy.dart';
 import 'permissions/permissions_manager.dart';
@@ -232,7 +233,7 @@ class Call {
 
   StreamCallCid get callCid => state.value.callCid;
 
-  String get type => state.value.callType;
+  StreamCallType get type => state.value.callType;
 
   String get id => state.value.callId;
 
@@ -532,14 +533,17 @@ class Call {
 
     _logger.v(() => '[join] starting sfu session');
     final sessionResult = await _startSession(joinedResult.data);
+
     if (sessionResult is! Success<None>) {
       _logger.w(() => '[join] sfu session start failed: $sessionResult');
       final error = (sessionResult as Failure).error;
       _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
       return sessionResult;
     }
+
     _logger.v(() => '[join] started session');
     _stateManager.lifecycleCallConnected(const CallConnected());
+
     await _applyConnectOptions();
 
     _logger.v(() => '[join] completed');
@@ -557,6 +561,8 @@ class Call {
     if (joinedResult is Success<CallJoinedData>) {
       _logger.v(() => '[joinIfNeeded] completed');
       _credentials = joinedResult.data.credentials;
+      _session?.rtcManager
+          ?.updateReportingInterval(joinedResult.data.reportingIntervalMs);
       return Result.success(joinedResult.data.credentials);
     }
     _logger.e(() => '[joinIfNeeded] failed: $joinedResult');
@@ -928,6 +934,9 @@ class Call {
       return;
     }
 
+    _session?.rtcManager
+        ?.updateReportingInterval(joinedResult.data.reportingIntervalMs);
+
     _logger.v(() => '[switchSfu] starting sfu session');
     final sessionResult = await _startSession(
       joinedResult.data.credentials,
@@ -967,6 +976,17 @@ class Call {
 
   List<RtcTrack> getTracks(String trackIdPrefix) {
     return [...?_session?.getTracks(trackIdPrefix)];
+  }
+
+  void _setDefaultConnectOptions(CallSettings settings) {
+    connectOptions = connectOptions.copyWith(
+      camera: TrackOption.fromSetting(
+        enabled: settings.video.cameraDefaultOn,
+      ),
+      microphone: TrackOption.fromSetting(
+        enabled: settings.audio.micDefaultOn,
+      ),
+    );
   }
 
   Future<void> _applyConnectOptions() async {
@@ -1185,11 +1205,26 @@ class Call {
       custom: custom,
     );
 
+    final mediaDevicesResult =
+        await RtcMediaDeviceNotifier.instance.enumerateDevices();
+    final mediaDevices = mediaDevicesResult.fold(
+      success: (success) => success.data,
+      failure: (failure) => <RtcMediaDevice>[],
+    );
+
     return response.fold(
       success: (it) {
+        _setDefaultConnectOptions(it.data.data.metadata.settings);
+
         _stateManager.lifecycleCallCreated(
           CallCreated(it.data.data),
           ringing: ringing,
+          audioOutputs: mediaDevices
+              .where((d) => d.kind == RtcMediaDeviceKind.audioOutput)
+              .toList(),
+          audioInputs: mediaDevices
+              .where((d) => d.kind == RtcMediaDeviceKind.audioInput)
+              .toList(),
         );
         _logger.v(() => '[getOrCreate] completed: ${it.data}');
         return it;
@@ -1231,6 +1266,7 @@ class Call {
       wasCreated: joinResult.data.wasCreated,
       metadata: joinResult.data.metadata,
       credentials: joinResult.data.credentials,
+      reportingIntervalMs: joinResult.data.reportingIntervalMs,
     );
     _stateManager.lifecycleCallJoined(CallJoined(joined));
     _logger.v(() => '[joinCall] completed: $joined');
