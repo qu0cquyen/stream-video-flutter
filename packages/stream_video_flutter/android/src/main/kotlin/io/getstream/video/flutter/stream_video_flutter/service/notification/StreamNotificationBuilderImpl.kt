@@ -135,6 +135,8 @@ internal class StreamNotificationBuilderImpl(
         }
 
         setOngoing(true)
+        setSilent(true)
+        setSound(null)
         setContentIntent(contentIntent)
         setCategory(NotificationCompat.CATEGORY_CALL)
         setDefaults(NotificationCompat.DEFAULT_ALL)
@@ -143,7 +145,7 @@ internal class StreamNotificationBuilderImpl(
         if (!contentText.isNullOrEmpty()) {
             setContentText(contentText)
         }
-        priority = NotificationCompat.PRIORITY_MAX
+        priority = NotificationCompat.PRIORITY_LOW
 
         addAction(actionBuilder.createCancelAction(getNotificationId(), payload.callCid, type))
 
@@ -173,8 +175,10 @@ internal class StreamNotificationBuilderImpl(
         setCategory(NotificationCompat.CATEGORY_CALL)
         setDefaults(NotificationCompat.DEFAULT_ALL)
         setAutoCancel(false)
+        setSilent(true)
+        setSound(null)
 
-        priority = NotificationCompat.PRIORITY_MAX
+        priority = NotificationCompat.PRIORITY_LOW
 
         val notificationLargeLayout = NotificationLayout(
             context, R.layout.stream_notification_large,

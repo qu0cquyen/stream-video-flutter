@@ -242,12 +242,17 @@ class Call {
   SharedEmitter<CallStats> get stats => _stats;
   late final _stats = MutableSharedEmitterImpl<CallStats>();
 
+  @Deprecated('Use `callEvents` instead')
   SharedEmitter<SfuEvent> get events => _events;
   final _events = MutableSharedEmitterImpl<SfuEvent>();
 
+  @Deprecated('Use `callEvents` instead')
   SharedEmitter<CoordinatorCallEvent> get coordinatorEvents =>
       _coordinatorEvents;
   final _coordinatorEvents = MutableSharedEmitterImpl<CoordinatorCallEvent>();
+
+  SharedEmitter<StreamCallEvent> get callEvents => _callEvents;
+  final _callEvents = MutableSharedEmitterImpl<StreamCallEvent>();
 
   OnCallPermissionRequest? onPermissionRequest;
 
@@ -294,6 +299,7 @@ class Call {
       _idCoordEvents,
       _coordinatorClient.events.on<CoordinatorCallEvent>((event) async {
         _coordinatorEvents.emit(event);
+        event.mapToCallEvent(state.value).emitIfNotNull(_callEvents);
         await _onCoordinatorEvent(event);
       }),
     );
@@ -593,6 +599,7 @@ class Call {
           () => '[listenSfuEvent] event.type: ${event.runtimeType}',
         );
         _events.emit(event);
+        event.mapToCallEvent(state.value).emitIfNotNull(_callEvents);
         _onSfuEvent(event);
       }),
     );
@@ -1480,11 +1487,17 @@ class Call {
     required bool enabled,
     ScreenShareConstraints? constraints,
   }) async {
+    // Checks to ensure the user can share their screen.
+    final canShare = hasPermission(CallPermission.screenshare);
+    if (enabled && !canShare) {
+      return Result.error('Missing permission to share screen for the user');
+    }
+
     final result = await _session?.setScreenShareEnabled(
           enabled,
           constraints: constraints,
         ) ??
-        Result.error('Session is null');
+        Result.error('Call session is null, cannot start screen share');
 
     if (result.isSuccess) {
       _stateManager.participantSetScreenShareEnabled(
@@ -1760,7 +1773,6 @@ class Call {
   }
 
   Future<Result<None>> sendCustomEvent({
-    required StreamCallCid callCid,
     required String eventType,
     Map<String, Object> custom = const {},
   }) {
