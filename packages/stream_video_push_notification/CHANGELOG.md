@@ -1,3 +1,9 @@
+## 0.3.7
+* Updated minimum supported SDK version to Flutter 3.16
+
+## 0.3.6
+* Sync version with `stream_video_flutter` 0.3.6
+
 ## 0.3.5
 * Sync version with `stream_video_flutter` 0.3.5
 
