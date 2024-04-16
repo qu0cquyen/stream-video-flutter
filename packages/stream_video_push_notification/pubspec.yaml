@@ -23,11 +23,10 @@ dependencies:
   plugin_platform_interface: ^2.1.6
   rxdart: ^0.27.7
   stream_video:
-    path: ../stream_video
-    # git:
-    #   url: https://github.com/qu0cquyen/stream-video-flutter.git
-    #   path: packages/stream_video
-    #   ref: main
+    git:
+      url: https://github.com/qu0cquyen/stream-video-flutter.git
+      path: packages/stream_video
+      ref: develop
   uuid: ^4.2.1
 
 dev_dependencies:

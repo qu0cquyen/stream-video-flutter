@@ -23,11 +23,10 @@ dependencies:
   # stream_video: ^0.3.1
 
   stream_video:
-    path: ../stream_video
-    # git:
-    #   url: https://github.com/qu0cquyen/stream-video-flutter.git
-    #   path: packages/stream_video
-    #   ref: main
+    git:
+      url: https://github.com/qu0cquyen/stream-video-flutter.git
+      path: packages/stream_video
+      ref: develop
 
   visibility_detector: ^0.4.0+2
 
