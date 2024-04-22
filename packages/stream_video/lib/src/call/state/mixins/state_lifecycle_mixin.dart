@@ -81,13 +81,17 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
       () => '[lifecycleCallReceived] ringing: $ringing'
           ', notify: $notify, state: $state',
     );
+    final status = stage.data.toCallStatus(state: state, ringing: ringing);
     state = state.copyWith(
-      status: stage.data.toCallStatus(state: state, ringing: ringing),
+      status: status,
       createdByUserId: stage.data.metadata.details.createdBy.id,
       settings: stage.data.metadata.settings,
       egress: stage.data.metadata.details.egress,
       ownCapabilities: stage.data.metadata.details.ownCapabilities.toList(),
-      callParticipants: stage.data.metadata.toCallParticipants(state),
+      callParticipants: stage.data.metadata.toCallParticipants(
+        state,
+        fromMembers: !status.isConnected,
+      ),
       createdAt: stage.data.metadata.details.createdAt,
       startsAt: stage.data.metadata.details.startsAt,
       endedAt: stage.data.metadata.details.endedAt,
@@ -105,7 +109,7 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     List<RtcMediaDevice>? audioOutputs,
     List<RtcMediaDevice>? audioInputs,
   }) {
-    final defaultAudioOutput = audioOutputs?.firstWhereOrNull((device) {
+    var defaultAudioOutput = audioOutputs?.firstWhereOrNull((device) {
       if (stage.data.metadata.settings.audio.defaultDevice ==
           AudioSettingsRequestDefaultDeviceEnum.speaker) {
         return device.id.equalsIgnoreCase(
@@ -117,6 +121,12 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
         AudioSettingsRequestDefaultDeviceEnum.speaker.value,
       );
     });
+
+    if (defaultAudioOutput == null &&
+        audioOutputs != null &&
+        audioOutputs.isNotEmpty) {
+      defaultAudioOutput = audioOutputs.first;
+    }
 
     final defaultAudioInput = audioInputs
             ?.firstWhereOrNull((d) => d.label == defaultAudioOutput?.label) ??
@@ -192,7 +202,10 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
       settings: stage.data.metadata.settings,
       egress: stage.data.metadata.details.egress,
       ownCapabilities: stage.data.metadata.details.ownCapabilities.toList(),
-      callParticipants: stage.data.metadata.toCallParticipants(state),
+      callParticipants: stage.data.metadata.toCallParticipants(
+        state,
+        fromMembers: true,
+      ),
       createdAt: stage.data.metadata.details.createdAt,
       startsAt: stage.data.metadata.details.startsAt,
       endedAt: stage.data.metadata.details.endedAt,
