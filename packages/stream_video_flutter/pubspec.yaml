@@ -26,7 +26,7 @@ dependencies:
     git:
       url: https://github.com/qu0cquyen/stream-video-flutter.git
       path: packages/stream_video
-      ref: develop
+      ref: main
 
   visibility_detector: ^0.4.0+2
 
