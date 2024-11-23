@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -24,8 +24,10 @@ class OwnCapability {
   String toJson() => value;
 
   static const blockUsers = OwnCapability._(r'block-users');
+  static const changeMaxDuration = OwnCapability._(r'change-max-duration');
   static const createCall = OwnCapability._(r'create-call');
   static const createReaction = OwnCapability._(r'create-reaction');
+  static const enableNoiseCancellation = OwnCapability._(r'enable-noise-cancellation');
   static const endCall = OwnCapability._(r'end-call');
   static const joinBackstage = OwnCapability._(r'join-backstage');
   static const joinCall = OwnCapability._(r'join-call');
@@ -51,8 +53,10 @@ class OwnCapability {
   /// List of all possible values in this [enum][OwnCapability].
   static const values = <OwnCapability>[
     blockUsers,
+    changeMaxDuration,
     createCall,
     createReaction,
+    enableNoiseCancellation,
     endCall,
     joinBackstage,
     joinCall,
@@ -113,8 +117,10 @@ class OwnCapabilityTypeTransformer {
     if (data != null) {
       switch (data) {
         case r'block-users': return OwnCapability.blockUsers;
+        case r'change-max-duration': return OwnCapability.changeMaxDuration;
         case r'create-call': return OwnCapability.createCall;
         case r'create-reaction': return OwnCapability.createReaction;
+        case r'enable-noise-cancellation': return OwnCapability.enableNoiseCancellation;
         case r'end-call': return OwnCapability.endCall;
         case r'join-backstage': return OwnCapability.joinBackstage;
         case r'join-call': return OwnCapability.joinCall;

@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -17,42 +17,50 @@ class CallSettingsResponse {
     required this.backstage,
     required this.broadcasting,
     required this.geofencing,
+    required this.limits,
     required this.recording,
     required this.ring,
     required this.screensharing,
+    required this.thumbnails,
     required this.transcription,
     required this.video,
   });
 
-  AudioSettings audio;
+  AudioSettingsResponse audio;
 
-  BackstageSettings backstage;
+  BackstageSettingsResponse backstage;
 
-  BroadcastSettings broadcasting;
+  BroadcastSettingsResponse broadcasting;
 
-  GeofenceSettings geofencing;
+  GeofenceSettingsResponse geofencing;
 
-  RecordSettings recording;
+  LimitsSettingsResponse limits;
 
-  RingSettings ring;
+  RecordSettingsResponse recording;
 
-  ScreensharingSettings screensharing;
+  RingSettingsResponse ring;
 
-  TranscriptionSettings transcription;
+  ScreensharingSettingsResponse screensharing;
 
-  VideoSettings video;
+  ThumbnailsSettingsResponse thumbnails;
+
+  TranscriptionSettingsResponse transcription;
+
+  VideoSettingsResponse video;
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is CallSettingsResponse &&
-     other.audio == audio &&
-     other.backstage == backstage &&
-     other.broadcasting == broadcasting &&
-     other.geofencing == geofencing &&
-     other.recording == recording &&
-     other.ring == ring &&
-     other.screensharing == screensharing &&
-     other.transcription == transcription &&
-     other.video == video;
+    other.audio == audio &&
+    other.backstage == backstage &&
+    other.broadcasting == broadcasting &&
+    other.geofencing == geofencing &&
+    other.limits == limits &&
+    other.recording == recording &&
+    other.ring == ring &&
+    other.screensharing == screensharing &&
+    other.thumbnails == thumbnails &&
+    other.transcription == transcription &&
+    other.video == video;
 
   @override
   int get hashCode =>
@@ -61,14 +69,16 @@ class CallSettingsResponse {
     (backstage.hashCode) +
     (broadcasting.hashCode) +
     (geofencing.hashCode) +
+    (limits.hashCode) +
     (recording.hashCode) +
     (ring.hashCode) +
     (screensharing.hashCode) +
+    (thumbnails.hashCode) +
     (transcription.hashCode) +
     (video.hashCode);
 
   @override
-  String toString() => 'CallSettingsResponse[audio=$audio, backstage=$backstage, broadcasting=$broadcasting, geofencing=$geofencing, recording=$recording, ring=$ring, screensharing=$screensharing, transcription=$transcription, video=$video]';
+  String toString() => 'CallSettingsResponse[audio=$audio, backstage=$backstage, broadcasting=$broadcasting, geofencing=$geofencing, limits=$limits, recording=$recording, ring=$ring, screensharing=$screensharing, thumbnails=$thumbnails, transcription=$transcription, video=$video]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
@@ -76,9 +86,11 @@ class CallSettingsResponse {
       json[r'backstage'] = this.backstage;
       json[r'broadcasting'] = this.broadcasting;
       json[r'geofencing'] = this.geofencing;
+      json[r'limits'] = this.limits;
       json[r'recording'] = this.recording;
       json[r'ring'] = this.ring;
       json[r'screensharing'] = this.screensharing;
+      json[r'thumbnails'] = this.thumbnails;
       json[r'transcription'] = this.transcription;
       json[r'video'] = this.video;
     return json;
@@ -103,15 +115,17 @@ class CallSettingsResponse {
       }());
 
       return CallSettingsResponse(
-        audio: AudioSettings.fromJson(json[r'audio'])!,
-        backstage: BackstageSettings.fromJson(json[r'backstage'])!,
-        broadcasting: BroadcastSettings.fromJson(json[r'broadcasting'])!,
-        geofencing: GeofenceSettings.fromJson(json[r'geofencing'])!,
-        recording: RecordSettings.fromJson(json[r'recording'])!,
-        ring: RingSettings.fromJson(json[r'ring'])!,
-        screensharing: ScreensharingSettings.fromJson(json[r'screensharing'])!,
-        transcription: TranscriptionSettings.fromJson(json[r'transcription'])!,
-        video: VideoSettings.fromJson(json[r'video'])!,
+        audio: AudioSettingsResponse.fromJson(json[r'audio'])!,
+        backstage: BackstageSettingsResponse.fromJson(json[r'backstage'])!,
+        broadcasting: BroadcastSettingsResponse.fromJson(json[r'broadcasting'])!,
+        geofencing: GeofenceSettingsResponse.fromJson(json[r'geofencing'])!,
+        limits: LimitsSettingsResponse.fromJson(json[r'limits'])!,
+        recording: RecordSettingsResponse.fromJson(json[r'recording'])!,
+        ring: RingSettingsResponse.fromJson(json[r'ring'])!,
+        screensharing: ScreensharingSettingsResponse.fromJson(json[r'screensharing'])!,
+        thumbnails: ThumbnailsSettingsResponse.fromJson(json[r'thumbnails'])!,
+        transcription: TranscriptionSettingsResponse.fromJson(json[r'transcription'])!,
+        video: VideoSettingsResponse.fromJson(json[r'video'])!,
       );
     }
     return null;
@@ -163,9 +177,11 @@ class CallSettingsResponse {
     'backstage',
     'broadcasting',
     'geofencing',
+    'limits',
     'recording',
     'ring',
     'screensharing',
+    'thumbnails',
     'transcription',
     'video',
   };

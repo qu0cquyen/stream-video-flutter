@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -20,6 +20,7 @@ class CallRingEvent {
     required this.sessionId,
     this.type = 'call.ring',
     required this.user,
+    required this.video,
   });
 
   CallResponse call;
@@ -39,15 +40,18 @@ class CallRingEvent {
 
   UserResponse user;
 
+  bool video;
+
   @override
   bool operator ==(Object other) => identical(this, other) || other is CallRingEvent &&
-     other.call == call &&
-     other.callCid == callCid &&
-     other.createdAt == createdAt &&
-     other.members == members &&
-     other.sessionId == sessionId &&
-     other.type == type &&
-     other.user == user;
+    other.call == call &&
+    other.callCid == callCid &&
+    other.createdAt == createdAt &&
+    _deepEquality.equals(other.members, members) &&
+    other.sessionId == sessionId &&
+    other.type == type &&
+    other.user == user &&
+    other.video == video;
 
   @override
   int get hashCode =>
@@ -58,10 +62,11 @@ class CallRingEvent {
     (members.hashCode) +
     (sessionId.hashCode) +
     (type.hashCode) +
-    (user.hashCode);
+    (user.hashCode) +
+    (video.hashCode);
 
   @override
-  String toString() => 'CallRingEvent[call=$call, callCid=$callCid, createdAt=$createdAt, members=$members, sessionId=$sessionId, type=$type, user=$user]';
+  String toString() => 'CallRingEvent[call=$call, callCid=$callCid, createdAt=$createdAt, members=$members, sessionId=$sessionId, type=$type, user=$user, video=$video]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
@@ -72,6 +77,7 @@ class CallRingEvent {
       json[r'session_id'] = this.sessionId;
       json[r'type'] = this.type;
       json[r'user'] = this.user;
+      json[r'video'] = this.video;
     return json;
   }
 
@@ -96,11 +102,12 @@ class CallRingEvent {
       return CallRingEvent(
         call: CallResponse.fromJson(json[r'call'])!,
         callCid: mapValueOfType<String>(json, r'call_cid')!,
-        createdAt: mapDateTime(json, r'created_at', '')!,
+        createdAt: mapDateTime(json, r'created_at', r'')!,
         members: MemberResponse.listFromJson(json[r'members']),
         sessionId: mapValueOfType<String>(json, r'session_id')!,
         type: mapValueOfType<String>(json, r'type')!,
         user: UserResponse.fromJson(json[r'user'])!,
+        video: mapValueOfType<bool>(json, r'video')!,
       );
     }
     return null;
@@ -155,6 +162,7 @@ class CallRingEvent {
     'session_id',
     'type',
     'user',
+    'video',
   };
 }
 

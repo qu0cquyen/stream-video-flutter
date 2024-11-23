@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:rxdart/rxdart.dart';
-import 'package:stream_video/stream_video.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:stream_video/stream_video.dart' hide CallEvent;
 import 'package:stream_video_push_notification/stream_video_push_notification_platform_interface.dart';
 
 import 'stream_video_push_params.dart';
@@ -18,20 +18,25 @@ const _idCallEnded = 3;
 const _idCallAccepted = 4;
 const _idCallKitAcceptDecline = 5;
 const _idCallRejected = 6;
+const _idCallParticipantCount = 7;
 
 /// Implementation of [PushNotificationManager] for Stream Video.
 class StreamVideoPushNotificationManager implements PushNotificationManager {
+  static const userDeviceTokenKey = 'io.getstream.userDeviceToken';
+  static const userDeviceTokenVoIPKey = 'io.getstream.userDeviceTokenVoIP';
+
   /// Factory for creating a new instance of [StreamVideoPushNotificationManager].
   ///   /// Parameters:
   /// * [callerCustomizationCallback] callback providing customized caller data used for call screen and CallKit call. (for iOS this will only work for foreground calls)
   /// * [backgroundVoipCallHandler] handler called when there is a VoIP call and app is in terminated state (for iOS only) - this handler must be a top-level function
-  /// refere to documentation for more details (https://getstream.io/video/docs/flutter/advanced/adding_ringing_and_callkit/#integrating-apns-for-ios)
+  /// refer to documentation for more details (https://getstream.io/video/docs/flutter/advanced/ringing_and_callkit/#integrating-apns-for-ios)
   static create({
     required StreamVideoPushProvider iosPushProvider,
     required StreamVideoPushProvider androidPushProvider,
     CallerCustomizationFunction? callerCustomizationCallback,
     BackgroundVoipCallHandler? backgroundVoipCallHandler,
     StreamVideoPushParams? pushParams,
+    bool registerApnDeviceToken = false,
   }) {
     return (CoordinatorClient client, StreamVideo streamVideo) {
       final params = _defaultPushParams.merge(pushParams);
@@ -51,6 +56,7 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
         androidPushProvider: androidPushProvider,
         pushParams: params,
         callerCustomizationCallback: callerCustomizationCallback,
+        registerApnDeviceToken: registerApnDeviceToken,
       );
     };
   }
@@ -62,13 +68,39 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
     required this.androidPushProvider,
     required this.pushParams,
     this.callerCustomizationCallback,
+    this.registerApnDeviceToken = false,
   }) : _client = client {
+    if (CurrentPlatform.isWeb) return;
+
+    SharedPreferences.getInstance().then((prefs) => _sharedPreferences = prefs);
+
     subscribeToEvents() {
       _subscriptions.add(
         _idCallEnded,
         client.events.on<CoordinatorCallEndedEvent>(
           (event) {
+            _logger.d(
+                () => '[subscribeToEvents] Call ended event: ${event.callCid}');
             endCallByCid(event.callCid.toString());
+          },
+        ),
+      );
+
+      _subscriptions.add(
+        _idCallParticipantCount,
+        client.events.on<CoordinatorCallSessionParticipantCountUpdatedEvent>(
+          (event) async {
+            final totalCount = event.participantsCountByRole.values
+                .map((v) => v)
+                .reduce((a, b) => a + b);
+
+            _logger.d(() =>
+                '[subscribeToEvents] Participant count updated event: ${event.callCid}, count: $totalCount');
+            if (totalCount == 0) {
+              _logger.v(() =>
+                  '[subscribeToEvents] No participants left, ending call: ${event.callCid}');
+              endCallByCid(event.callCid.toString());
+            }
           },
         ),
       );
@@ -77,16 +109,13 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
         _idCallRejected,
         client.events.on<CoordinatorCallRejectedEvent>(
           (event) async {
-            final callRingingState = await streamVideo.getCallRingingState(
-                callType: event.callCid.type, id: event.callCid.id);
-
-            switch (callRingingState) {
-              case CallRingingState.accepted:
-              case CallRingingState.rejected:
-              case CallRingingState.ended:
-                endCallByCid(event.callCid.toString());
-              case CallRingingState.ringing:
-                break;
+            _logger.d(() =>
+                '[subscribeToEvents] Call rejected event: ${event.callCid}, rejected by: ${event.rejectedByUserId}');
+            if (event.rejectedByUserId == event.metadata.details.createdBy.id ||
+                event.rejectedByUserId == streamVideo.currentUser.id) {
+              _logger.v(() =>
+                  '[subscribeToEvents] Call rejected by the current user or call owner, ending call: ${event.callCid}');
+              endCallByCid(event.callCid.toString());
             }
           },
         ),
@@ -96,19 +125,27 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
         _idCallAccepted,
         client.events.on<CoordinatorCallAcceptedEvent>(
           (event) async {
-            final callRingingState = await streamVideo.getCallRingingState(
-                callType: event.callCid.type, id: event.callCid.id);
+            _logger.d(() =>
+                '[subscribeToEvents] Call accepted event: ${event.callCid}, accepted by: ${event.acceptedByUserId}');
+            if (event.acceptedByUserId != streamVideo.currentUser.id) return;
 
-            switch (callRingingState) {
-              case CallRingingState.accepted:
-              case CallRingingState.rejected:
-              case CallRingingState.ended:
-                await FlutterCallkitIncoming.silenceEvents();
-                await endCallByCid(event.callCid.toString());
-                await Future<void>.delayed(const Duration(milliseconds: 300));
-                await FlutterCallkitIncoming.unsilenceEvents();
-              case CallRingingState.ringing:
-                break;
+            // end CallKit call on other devices if the call was accepted on one of them
+            if (streamVideo.activeCall?.state.value.status
+                is! CallStatusActive) {
+              _logger.v(() =>
+                  '[subscribeToEvents] Call accepted on other device, ending call: ${event.callCid}');
+              await endCallByCid(event.callCid.toString());
+            }
+
+            // if the call was accepted on the same device, end the CallKit call silently
+            // (in case it was accepted from the app and not from the CallKit UI)
+            else {
+              _logger.v(() =>
+                  '[subscribeToEvents] Call accepted on the same device, ending CallKit silently: ${event.callCid}');
+              await FlutterCallkitIncoming.silenceEvents();
+              await endCallByCid(event.callCid.toString());
+              await Future<void>.delayed(const Duration(milliseconds: 300));
+              await FlutterCallkitIncoming.unsilenceEvents();
             }
           },
         ),
@@ -151,6 +188,7 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
           _subscriptions.cancel(_idCallAccepted);
           _subscriptions.cancel(_idCallEnded);
           _subscriptions.cancel(_idCallRejected);
+          _subscriptions.cancel(_idCallParticipantCount);
         },
       ),
     );
@@ -161,6 +199,8 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
   final StreamVideoPushProvider androidPushProvider;
   final StreamVideoPushParams pushParams;
   final CallerCustomizationFunction? callerCustomizationCallback;
+  final bool registerApnDeviceToken;
+  late SharedPreferences _sharedPreferences;
 
   final _logger = taggedLogger(tag: 'SV:PNManager');
   bool? _wasWsConnected;
@@ -180,26 +220,59 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
       return;
     }
 
-    void registerDevice(String token) {
-      _client.createDevice(
+    void registerDevice(String token, bool isVoIP) async {
+      final tokenKey = isVoIP ? userDeviceTokenVoIPKey : userDeviceTokenKey;
+
+      final storedToken = _sharedPreferences.getString(tokenKey);
+      if (storedToken == token) return;
+
+      _client
+          .createDevice(
         id: token,
-        voipToken: pushProvider.isVoIP,
+        voipToken: isVoIP,
         pushProvider: pushProvider.type,
         pushProviderName: pushProvider.name,
-      );
+      )
+          .then((result) {
+        if (result is Success) {
+          _sharedPreferences.setString(tokenKey, token);
+        }
+      });
+    }
+
+    if (CurrentPlatform.isIos && registerApnDeviceToken) {
+      StreamTokenProvider.getAPNToken().then((token) {
+        if (token != null) {
+          registerDevice(token, false);
+        }
+      });
     }
 
     _subscriptions.addIfAbsent(
-        _idToken, () => pushProvider.onTokenRefresh.listen(registerDevice));
+        _idToken,
+        () => pushProvider.onTokenRefresh
+            .listen((token) => registerDevice(token, true)));
+  }
+
+  Future<void> removedStoredTokens() async {
+    await _sharedPreferences.remove(userDeviceTokenKey);
+    await _sharedPreferences.remove(userDeviceTokenVoIPKey);
   }
 
   @override
   void unregisterDevice() async {
     final token = await getDevicePushTokenVoIP();
-    if (token == null) return;
+    if (token != null) {
+      _client.deleteDevice(id: token);
+      _subscriptions.cancel(_idToken);
+    }
 
-    _client.deleteDevice(id: token);
-    _subscriptions.cancel(_idToken);
+    final apnToken = await StreamTokenProvider.getAPNToken();
+    if (apnToken != null) {
+      _client.deleteDevice(id: apnToken);
+    }
+
+    removedStoredTokens();
   }
 
   @override
@@ -287,6 +360,8 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
 
   @override
   Future<List<CallData>> activeCalls() async {
+    if (CurrentPlatform.isWeb) return [];
+
     final activeCalls = await FlutterCallkitIncoming.activeCalls();
     if (activeCalls is! List) return [];
 
@@ -321,9 +396,9 @@ class StreamVideoPushNotificationManager implements PushNotificationManager {
 
   @override
   Future<String?> getDevicePushTokenVoIP() async {
-    if (Platform.isIOS) {
+    if (CurrentPlatform.isIos) {
       return await StreamTokenProvider.getVoIPToken();
-    } else if (Platform.isAndroid) {
+    } else if (CurrentPlatform.isAndroid) {
       return await StreamTokenProvider.getFirebaseToken();
     }
 
@@ -378,7 +453,7 @@ const _defaultPushParams = StreamVideoPushParams(
     audioSessionPreferredSampleRate: 44100.0,
     audioSessionPreferredIOBufferDuration: 0.005,
     supportsDTMF: true,
-    supportsHolding: true,
+    supportsHolding: false,
     supportsGrouping: false,
     supportsUngrouping: false,
     ringtonePath: 'system_ringtone_default',

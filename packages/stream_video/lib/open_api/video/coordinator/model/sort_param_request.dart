@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -17,7 +17,7 @@ class SortParamRequest {
     this.field,
   });
 
-  /// Direction of sorting, -1 for descending, 1 for ascending
+  /// Direction of sorting, 1 for Ascending, -1 for Descending, default is 1
   ///
   /// Please note: This property should have been non-nullable! Since the specification file
   /// does not include a default value (using the "default:" property), however, the generated
@@ -37,8 +37,8 @@ class SortParamRequest {
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is SortParamRequest &&
-     other.direction == direction &&
-     other.field == field;
+    other.direction == direction &&
+    other.field == field;
 
   @override
   int get hashCode =>

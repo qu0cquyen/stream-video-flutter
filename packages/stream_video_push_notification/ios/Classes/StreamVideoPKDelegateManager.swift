@@ -3,7 +3,7 @@ import PushKit
 import Flutter
 import flutter_callkit_incoming
 
-public class StreamVideoPKDelegateManager: NSObject, PKPushRegistryDelegate {
+public class StreamVideoPKDelegateManager: NSObject, PKPushRegistryDelegate, UNUserNotificationCenterDelegate {
     public static let shared = StreamVideoPKDelegateManager()
     
     private var pushRegistry: PKPushRegistry?
@@ -82,6 +82,8 @@ public class StreamVideoPKDelegateManager: NSObject, PKPushRegistryDelegate {
         let callCid = streamDict?["call_cid"] as? String ?? ""
         let createdByName = streamDict?["created_by_display_name"] as? String
         let createdById = streamDict?["created_by_id"] as? String
+        let videoIncluded = streamDict?["video"] as? String
+        let videoData = videoIncluded == "false" ? 0 : 1
 
         var callUUID = UUID().uuidString;
 
@@ -96,7 +98,7 @@ public class StreamVideoPKDelegateManager: NSObject, PKPushRegistryDelegate {
         // data.callKitData.nameCaller = createdByName ?? defaultCallText
         data.callKitData.nameCaller = "FastBoy Support"
         data.callKitData.handle = createdById ?? defaultCallText
-        data.callKitData.type = 1 //video
+        data.callKitData.type = videoData
         data.callKitData.extra = ["callCid": callCid]
         
         // Show call incoming notification.
@@ -105,11 +107,7 @@ public class StreamVideoPKDelegateManager: NSObject, PKPushRegistryDelegate {
             fromPushKit: true
         )
         
-        // Complete after a delay to ensure that the incoming call notification
-        // is displayed before completing the push notification handling.
-       DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-           completion()
-       }
+        completion()
     }
     
 }

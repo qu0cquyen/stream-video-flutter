@@ -56,7 +56,7 @@ class StreamCallContainer extends StatefulWidget {
     this.incomingCallBuilder,
     this.outgoingCallBuilder,
     this.callContentBuilder,
-    this.enablePictureInPicture = false,
+    this.pictureInPictureConfiguration = const PictureInPictureConfiguration(),
   });
 
   /// Represents a call.
@@ -89,8 +89,8 @@ class StreamCallContainer extends StatefulWidget {
   /// Builder used to create a custom call content widget.
   final CallContentBuilder? callContentBuilder;
 
-  /// Whether to enable picture-in-picture mode. (available only on Android)
-  final bool enablePictureInPicture;
+  /// Configuration for picture-in-picture mode.
+  final PictureInPictureConfiguration pictureInPictureConfiguration;
 
   @override
   State<StreamCallContainer> createState() => _StreamCallContainerState();
@@ -158,7 +158,7 @@ class _StreamCallContainerState extends State<StreamCallContainer> {
             callState: _callState,
             onBackPressed: widget.onBackPressed,
             onLeaveCallTap: widget.onLeaveCallTap,
-            enablePictureInPicture: widget.enablePictureInPicture,
+            pictureInPictureConfiguration: widget.pictureInPictureConfiguration,
           );
     }
   }
@@ -166,10 +166,8 @@ class _StreamCallContainerState extends State<StreamCallContainer> {
   Future<void> _connect() async {
     try {
       _logger.d(() => '[connect] no args');
-      if (widget.callConnectOptions != null) {
-        call.connectOptions = widget.callConnectOptions!;
-      }
-      final result = await call.join();
+
+      final result = await call.join(connectOptions: widget.callConnectOptions);
       _logger.v(() => '[connect] completed: $result');
     } catch (e) {
       _logger.v(() => '[connect] failed: $e');
@@ -181,6 +179,7 @@ class _StreamCallContainerState extends State<StreamCallContainer> {
     _logger.d(() => '[leave] no args');
     // play tone
     final bool popped;
+
     if (mounted) {
       popped = await Navigator.maybePop(context);
     } else {

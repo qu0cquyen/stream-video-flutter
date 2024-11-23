@@ -6,14 +6,7 @@ import '../../../stream_video_flutter_background.dart';
 import '../call_diagnostics_content/call_diagnostics_content.dart';
 
 /// Builder used to create a custom call app bar.
-typedef CallAppBarBuilder = PreferredSizeWidget Function(
-  BuildContext context,
-  Call call,
-  CallState callState,
-);
-
-/// Builder used to create a custom call app bar in landscape mode.
-typedef OverlayAppBarBuilder = Widget Function(
+typedef CallAppBarBuilder = PreferredSizeWidget? Function(
   BuildContext context,
   Call call,
   CallState callState,
@@ -33,12 +26,6 @@ typedef CallControlsBuilder = Widget Function(
   CallState callState,
 );
 
-typedef CallPictureInPictureBuilder = Widget Function(
-  BuildContext context,
-  Call call,
-  CallState callState,
-);
-
 /// Represents the UI in an active call that shows participants and their video,
 /// as well as some extra UI features to control the call settings, browse
 /// participants and more.
@@ -51,12 +38,10 @@ class StreamCallContent extends StatefulWidget {
     this.onBackPressed,
     this.onLeaveCallTap,
     this.callAppBarBuilder,
-    this.overlayAppBarBuilder,
     this.callParticipantsBuilder,
     this.callControlsBuilder,
     this.layoutMode = ParticipantLayoutMode.grid,
-    this.enablePictureInPicture = false,
-    this.callPictureInPictureBuilder,
+    this.pictureInPictureConfiguration = const PictureInPictureConfiguration(),
   });
 
   /// Represents a call.
@@ -74,9 +59,6 @@ class StreamCallContent extends StatefulWidget {
   /// Builder used to create a custom call app bar.
   final CallAppBarBuilder? callAppBarBuilder;
 
-  /// Builder used to create a custom call app bar in landscape mode.
-  final OverlayAppBarBuilder? overlayAppBarBuilder;
-
   /// Builder used to create a custom participants grid.
   final CallParticipantsBuilder? callParticipantsBuilder;
 
@@ -86,11 +68,8 @@ class StreamCallContent extends StatefulWidget {
   /// The layout mode used to display the participants.
   final ParticipantLayoutMode layoutMode;
 
-  /// Whether to enable picture-in-picture mode. (available only on Android)
-  final bool enablePictureInPicture;
-
-  /// Builder used to create a custom picture in picture mode. (available only on Android)
-  final CallPictureInPictureBuilder? callPictureInPictureBuilder;
+  /// Configuration for picture-in-picture mode.
+  final PictureInPictureConfiguration pictureInPictureConfiguration;
 
   @override
   State<StreamCallContent> createState() => _StreamCallContentState();
@@ -114,7 +93,7 @@ class _StreamCallContentState extends State<StreamCallContent>
   void initState() {
     super.initState();
 
-    if (widget.enablePictureInPicture) {
+    if (widget.pictureInPictureConfiguration.enablePictureInPicture) {
       StreamVideoFlutterBackground.setPictureInPictureEnabled(enable: true);
       WidgetsBinding.instance.addObserver(this);
     }
@@ -123,8 +102,9 @@ class _StreamCallContentState extends State<StreamCallContent>
   @override
   void didUpdateWidget(covariant StreamCallContent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.enablePictureInPicture != oldWidget.enablePictureInPicture) {
-      if (widget.enablePictureInPicture) {
+    if (widget.pictureInPictureConfiguration.enablePictureInPicture !=
+        oldWidget.pictureInPictureConfiguration.enablePictureInPicture) {
+      if (widget.pictureInPictureConfiguration.enablePictureInPicture) {
         StreamVideoFlutterBackground.setPictureInPictureEnabled(enable: true);
         WidgetsBinding.instance.addObserver(this);
       } else {
@@ -136,7 +116,7 @@ class _StreamCallContentState extends State<StreamCallContent>
 
   @override
   void dispose() {
-    if (widget.enablePictureInPicture) {
+    if (widget.pictureInPictureConfiguration.enablePictureInPicture) {
       StreamVideoFlutterBackground.setPictureInPictureEnabled(enable: false);
       WidgetsBinding.instance.removeObserver(this);
     }
@@ -162,7 +142,8 @@ class _StreamCallContentState extends State<StreamCallContent>
     final theme = StreamVideoTheme.of(context);
 
     if (_isPictureInPictureModeOn && CurrentPlatform.isAndroid) {
-      return widget.callPictureInPictureBuilder
+      return widget.pictureInPictureConfiguration.androidPiPConfiguration
+              .callPictureInPictureBuilder
               ?.call(context, call, callState) ??
           StreamCallParticipants(
             call: call,
@@ -172,25 +153,39 @@ class _StreamCallContentState extends State<StreamCallContent>
     }
 
     final Widget bodyWidget;
-    if (callState.status.isConnected || callState.status.isFastReconnecting) {
-      bodyWidget = widget.callParticipantsBuilder?.call(
-            context,
-            call,
-            callState,
-          ) ??
-          StreamCallParticipants(
-            call: call,
-            participants: callState.callParticipants,
-            layoutMode: widget.layoutMode,
-          );
+    if (callState.status.isConnected ||
+        callState.status.isFastReconnecting ||
+        callState.status.isMigrating) {
+      bodyWidget = Stack(
+        children: [
+          if (CurrentPlatform.isIos &&
+              widget.pictureInPictureConfiguration.enablePictureInPicture)
+            SizedBox(
+              height: 600,
+              width: 300,
+              child: StreamPictureInPictureUiKitView(
+                call: call,
+                ignoreLocalParticipantVideo: widget
+                    .pictureInPictureConfiguration
+                    .iOSPiPConfiguration
+                    .ignoreLocalParticipantVideo,
+              ),
+            ),
+          widget.callParticipantsBuilder?.call(
+                context,
+                call,
+                callState,
+              ) ??
+              StreamCallParticipants(
+                call: call,
+                participants: callState.callParticipants,
+                layoutMode: widget.layoutMode,
+              ),
+        ],
+      );
     } else {
-      final isMigrating = callState.status.isMigrating;
       final isReconnecting = callState.status.isReconnecting;
-      final statusText = isMigrating
-          ? 'Migrating'
-          : isReconnecting
-              ? 'Reconnecting'
-              : 'Connecting';
+      final statusText = isReconnecting ? 'Reconnecting' : 'Connecting';
       bodyWidget = Center(
         child: Text(
           statusText,
@@ -207,6 +202,7 @@ class _StreamCallContentState extends State<StreamCallContent>
           CallAppBar(
             call: call,
             onBackPressed: widget.onBackPressed,
+            onLeaveCallTap: widget.onLeaveCallTap,
           ),
       body: Stack(
         children: [
@@ -241,7 +237,6 @@ class _StreamCallContentState extends State<StreamCallContent>
               StreamCallControls.withDefaultOptions(
                 call: call,
                 localParticipant: localParticipant,
-                onLeaveCallTap: widget.onLeaveCallTap,
               )
           : null,
     );

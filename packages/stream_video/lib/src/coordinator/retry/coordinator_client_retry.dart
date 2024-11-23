@@ -64,7 +64,6 @@ class CoordinatorClientRetry extends CoordinatorClient {
         id: id,
         pushProvider: pushProvider,
         pushProviderName: pushProviderName,
-        userId: userId,
         voipToken: voipToken,
       ),
       (error, nextAttemptDelay) async {
@@ -74,13 +73,9 @@ class CoordinatorClientRetry extends CoordinatorClient {
   }
 
   @override
-  Future<Result<List<PushDevice>>> listDevices({
-    required String userId,
-  }) {
+  Future<Result<List<PushDevice>>> listDevices() {
     return _retryManager.execute(
-      () => _delegate.listDevices(
-        userId: userId,
-      ),
+      _delegate.listDevices,
       (error, nextAttemptDelay) async {
         _logRetry('listDevices', error, nextAttemptDelay);
       },
@@ -125,6 +120,7 @@ class CoordinatorClientRetry extends CoordinatorClient {
     int? membersLimit,
     bool? ringing,
     bool? notify,
+    bool? video,
   }) {
     return _retryManager.execute(
       () => _delegate.getCall(
@@ -132,6 +128,7 @@ class CoordinatorClientRetry extends CoordinatorClient {
         membersLimit: membersLimit,
         ringing: ringing,
         notify: notify,
+        video: video,
       ),
       (error, nextAttemptDelay) async {
         _logRetry('getCall', error, nextAttemptDelay);
@@ -146,6 +143,9 @@ class CoordinatorClientRetry extends CoordinatorClient {
     List<open.MemberRequest>? members,
     String? team,
     bool? notify,
+    bool? video,
+    DateTime? startsAt,
+    open.CallSettingsRequest? settingsOverride,
     Map<String, Object> custom = const {},
   }) {
     return _retryManager.execute(
@@ -155,6 +155,9 @@ class CoordinatorClientRetry extends CoordinatorClient {
         members: members,
         team: team,
         notify: notify,
+        video: video,
+        startsAt: startsAt,
+        settingsOverride: settingsOverride,
         custom: custom,
       ),
       (error, nextAttemptDelay) async {
@@ -236,18 +239,18 @@ class CoordinatorClientRetry extends CoordinatorClient {
   @override
   Future<Result<CoordinatorJoined>> joinCall({
     required StreamCallCid callCid,
-    String? datacenterId,
     bool? ringing,
     bool? create,
     String? migratingFrom,
+    bool? video,
   }) {
     return _retryManager.execute(
       () => _delegate.joinCall(
         callCid: callCid,
-        datacenterId: datacenterId,
         ringing: ringing,
         create: create,
         migratingFrom: migratingFrom,
+        video: video,
       ),
       (error, nextAttemptDelay) async {
         _logRetry('joinCall', error, nextAttemptDelay);
@@ -266,9 +269,12 @@ class CoordinatorClientRetry extends CoordinatorClient {
   }
 
   @override
-  Future<Result<None>> rejectCall({required StreamCallCid cid}) {
+  Future<Result<None>> rejectCall({
+    required StreamCallCid cid,
+    String? reason,
+  }) {
     return _retryManager.execute(
-      () => _delegate.rejectCall(cid: cid),
+      () => _delegate.rejectCall(cid: cid, reason: reason),
       (error, nextAttemptDelay) async {
         _logRetry('rejectCall', error, nextAttemptDelay);
       },
@@ -332,6 +338,7 @@ class CoordinatorClientRetry extends CoordinatorClient {
     String? prev,
     List<open.SortParamRequest> sorts = const [],
     int? limit,
+    bool? watch,
   }) {
     return _retryManager.execute(
       () => _delegate.queryCalls(
@@ -340,6 +347,7 @@ class CoordinatorClientRetry extends CoordinatorClient {
         prev: prev,
         sorts: sorts,
         limit: limit,
+        watch: watch,
       ),
       (error, nextAttemptDelay) async {
         _logRetry('queryCalls', error, nextAttemptDelay);
@@ -436,9 +444,15 @@ class CoordinatorClientRetry extends CoordinatorClient {
   }
 
   @override
-  Future<Result<None>> startRecording(StreamCallCid callCid) {
+  Future<Result<None>> startRecording(
+    StreamCallCid callCid, {
+    String? recordingExternalStorage,
+  }) {
     return _retryManager.execute(
-      () => _delegate.startRecording(callCid),
+      () => _delegate.startRecording(
+        callCid,
+        recordingExternalStorage: recordingExternalStorage,
+      ),
       (error, nextAttemptDelay) async {
         _logRetry('startRecording', error, nextAttemptDelay);
       },
@@ -448,10 +462,9 @@ class CoordinatorClientRetry extends CoordinatorClient {
   @override
   Future<Result<List<open.CallRecording>>> listRecordings(
     StreamCallCid callCid,
-    String sessionId,
   ) {
     return _retryManager.execute(
-      () => _delegate.listRecordings(callCid, sessionId),
+      () => _delegate.listRecordings(callCid),
       (error, nextAttemptDelay) async {
         _logRetry('listRecordings', error, nextAttemptDelay);
       },
@@ -489,6 +502,44 @@ class CoordinatorClientRetry extends CoordinatorClient {
   }
 
   @override
+  Future<Result<None>> startTranscription(
+    StreamCallCid callCid, {
+    String? transcriptionExternalStorage,
+  }) {
+    return _retryManager.execute(
+      () => _delegate.startTranscription(
+        callCid,
+        transcriptionExternalStorage: transcriptionExternalStorage,
+      ),
+      (error, nextAttemptDelay) async {
+        _logRetry('startTranscription', error, nextAttemptDelay);
+      },
+    );
+  }
+
+  @override
+  Future<Result<None>> stopTranscription(StreamCallCid callCid) {
+    return _retryManager.execute(
+      () => _delegate.stopTranscription(callCid),
+      (error, nextAttemptDelay) async {
+        _logRetry('stopTranscription', error, nextAttemptDelay);
+      },
+    );
+  }
+
+  @override
+  Future<Result<List<open.CallTranscription>>> listTranscriptions(
+    StreamCallCid callCid,
+  ) {
+    return _retryManager.execute(
+      () => _delegate.listTranscriptions(callCid),
+      (error, nextAttemptDelay) async {
+        _logRetry('listTranscriptions', error, nextAttemptDelay);
+      },
+    );
+  }
+
+  @override
   Future<Result<None>> unblockUser({
     required StreamCallCid callCid,
     required String userId,
@@ -516,6 +567,7 @@ class CoordinatorClientRetry extends CoordinatorClient {
     StreamTranscriptionSettings? transcription,
     StreamBackstageSettings? backstage,
     StreamGeofencingSettings? geofencing,
+    StreamLimitsSettings? limits,
   }) {
     return _retryManager.execute(
       () => _delegate.updateCall(
@@ -529,6 +581,7 @@ class CoordinatorClientRetry extends CoordinatorClient {
         transcription: transcription,
         backstage: backstage,
         geofencing: geofencing,
+        limits: limits,
       ),
       (error, nextAttemptDelay) async {
         _logRetry('updateCall', error, nextAttemptDelay);
@@ -571,18 +624,14 @@ class CoordinatorClientRetry extends CoordinatorClient {
   Future<Result<GuestCreatedData>> loadGuest({
     required String id,
     String? name,
-    String? role,
     String? image,
-    List<String>? teams,
     Map<String, Object> custom = const {},
   }) {
     return _retryManager.execute(
       () => _delegate.loadGuest(
         id: id,
         name: name,
-        role: role,
         image: image,
-        teams: teams,
         custom: custom,
       ),
       (error, nextAttemptDelay) async {
