@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../../../stream_video_flutter.dart';
@@ -66,8 +64,12 @@ class ToggleScreenShareOption extends StatelessWidget {
       onPressed: () async {
         final toggledEnabled = !enabled;
 
-        if (Platform.isAndroid) {
+        if (CurrentPlatform.isAndroid) {
           if (toggledEnabled) {
+            if (!await call.requestScreenSharePermission()) {
+              return;
+            }
+
             await StreamBackgroundService()
                 .startScreenSharingNotificationService(call);
           } else {
@@ -81,7 +83,7 @@ class ToggleScreenShareOption extends StatelessWidget {
           constraints: screenShareConstraints,
         );
 
-        if (Platform.isAndroid && result.isFailure) {
+        if (CurrentPlatform.isAndroid && result.isFailure) {
           await StreamBackgroundService()
               .stopScreenSharingNotificationService();
         }

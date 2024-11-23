@@ -13,6 +13,31 @@ import 'connect/connect.dart'
 
 export 'package:web_socket_channel/web_socket_channel.dart';
 
+enum StreamWebSocketCloseCode {
+  // /**
+  //  * The normal closure code. Used for controlled shutdowns.
+  //  */
+  normalClosure(1000),
+
+  // /**
+  //  * The error code used when the SFU connection is unhealthy.
+  //  * Usually, this means that no message has been received from the SFU for
+  //  * a certain amount of time (`connectionCheckTimeout`).
+  //  */
+  errorConnectionUnhealthy(4001),
+
+  // /**
+  //  * The error code used when the SFU connection is disposed because a new
+  //  * connection is established or is about to be established.
+  //  * Here, we don't use 1000 (normal closure) because we don't want the
+  //  * SFU to clean up the resources associated with the current participant.
+  //  */
+  disposeOldSocket(4002);
+
+  const StreamWebSocketCloseCode(this.value);
+  final int value;
+}
+
 /// A simple wrapper around [WebSocketChannel] to make it easier to use.
 abstract class StreamWebSocket {
   /// Creates a new instance of [StreamWebSocket].

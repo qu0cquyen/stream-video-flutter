@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -16,6 +16,7 @@ class CallRejectedEvent {
     required this.call,
     required this.callCid,
     required this.createdAt,
+    this.reason,
     this.type = 'call.rejected',
     required this.user,
   });
@@ -26,6 +27,14 @@ class CallRejectedEvent {
 
   DateTime createdAt;
 
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  String? reason;
+
   /// The type of event: \"call.rejected\" in this case
   String type;
 
@@ -33,11 +42,12 @@ class CallRejectedEvent {
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is CallRejectedEvent &&
-     other.call == call &&
-     other.callCid == callCid &&
-     other.createdAt == createdAt &&
-     other.type == type &&
-     other.user == user;
+    other.call == call &&
+    other.callCid == callCid &&
+    other.createdAt == createdAt &&
+    other.reason == reason &&
+    other.type == type &&
+    other.user == user;
 
   @override
   int get hashCode =>
@@ -45,17 +55,23 @@ class CallRejectedEvent {
     (call.hashCode) +
     (callCid.hashCode) +
     (createdAt.hashCode) +
+    (reason == null ? 0 : reason!.hashCode) +
     (type.hashCode) +
     (user.hashCode);
 
   @override
-  String toString() => 'CallRejectedEvent[call=$call, callCid=$callCid, createdAt=$createdAt, type=$type, user=$user]';
+  String toString() => 'CallRejectedEvent[call=$call, callCid=$callCid, createdAt=$createdAt, reason=$reason, type=$type, user=$user]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
       json[r'call'] = this.call;
       json[r'call_cid'] = this.callCid;
       json[r'created_at'] = this.createdAt.toUtc().toIso8601String();
+    if (this.reason != null) {
+      json[r'reason'] = this.reason;
+    } else {
+      json[r'reason'] = null;
+    }
       json[r'type'] = this.type;
       json[r'user'] = this.user;
     return json;
@@ -82,7 +98,8 @@ class CallRejectedEvent {
       return CallRejectedEvent(
         call: CallResponse.fromJson(json[r'call'])!,
         callCid: mapValueOfType<String>(json, r'call_cid')!,
-        createdAt: mapDateTime(json, r'created_at', '')!,
+        createdAt: mapDateTime(json, r'created_at', r'')!,
+        reason: mapValueOfType<String>(json, r'reason'),
         type: mapValueOfType<String>(json, r'type')!,
         user: UserResponse.fromJson(json[r'user'])!,
       );

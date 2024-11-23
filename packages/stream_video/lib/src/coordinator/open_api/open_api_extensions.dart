@@ -9,7 +9,7 @@ extension MemberExt on open.MemberResponse {
   CallMember toCallMember() {
     return CallMember(
       userId: userId,
-      role: role ?? '',
+      roles: role != null ? [role!] : [],
       custom: custom,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -33,7 +33,7 @@ extension UserExt on open.UserResponse {
     return CallUser(
       id: id,
       teams: teams,
-      role: role,
+      roles: [role],
       name: name ?? '',
       image: image ?? '',
       createdAt: createdAt,
@@ -46,7 +46,7 @@ extension UserExt on open.UserResponse {
   CallMember toCallMember() {
     return CallMember(
       userId: id,
-      role: role,
+      roles: [role],
       custom: custom,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -123,6 +123,7 @@ extension EnvelopeExt on open.CallResponse {
       transcribing: transcribing,
       custom: Map.unmodifiable(custom),
       rtmpIngress: ingress.rtmp.address,
+      joinAheadTimeSeconds: joinAheadTimeSeconds,
       startsAt: startsAt,
       createdAt: createdAt,
       endedAt: endedAt,
@@ -145,7 +146,7 @@ extension EgressRtmpExt on open.EgressRTMPResponse {
     return CallEgressRtmp(
       name: name,
       streamKey: streamKey,
-      url: url,
+      url: streamUrl,
     );
   }
 }
@@ -158,35 +159,43 @@ extension CallSettingsExt on open.CallSettingsResponse {
       ring: StreamRingSettings(
         autoCancelTimeout: Duration(milliseconds: ring.autoCancelTimeoutMs),
         autoRejectTimeout: Duration(milliseconds: ring.incomingCallTimeoutMs),
+        missedCallTimeout: Duration(milliseconds: ring.missedCallTimeoutMs),
       ),
       audio: StreamAudioSettings(
         accessRequestEnabled: audio.accessRequestEnabled,
         opusDtxEnabled: audio.opusDtxEnabled,
         redundantCodingEnabled: audio.redundantCodingEnabled,
-        defaultDevice: audio.defaultDevice.toDomain(),
+        defaultDevice: audio.defaultDevice.toRequestDomain(),
         micDefaultOn: audio.micDefaultOn,
         speakerDefaultOn: audio.speakerDefaultOn,
+        noiseCancellation: audio.noiseCancellation?.toSettingsDomain(),
       ),
       video: StreamVideoSettings(
         accessRequestEnabled: video.accessRequestEnabled,
         enabled: video.enabled,
+        cameraDefaultOn: video.cameraDefaultOn,
+        cameraFacing: video.cameraFacing.toRequestDomain(),
+        targetResolution: video.targetResolution.toSettingsDomain(),
       ),
       screenShare: StreamScreenShareSettings(
         accessRequestEnabled: screensharing.accessRequestEnabled,
         enabled: screensharing.enabled,
+        targetResolution: video.targetResolution.toSettingsDomain(),
       ),
       recording: StreamRecordingSettings(
         audioOnly: recording.audioOnly,
-        mode: recording.mode.toDomain(),
-        quality: recording.quality.toDomain(),
+        mode: RecordSettingsMode.fromString(recording.mode),
+        quality: RecordSettingsQuality.fromString(recording.quality),
       ),
       broadcasting: StreamBroadcastingSettings(
         enabled: broadcasting.enabled,
-        hls: broadcasting.hls.toDomain(),
+        hls: broadcasting.hls.toSettingsDomain(),
+        rtmp: broadcasting.rtmp.toSettingsDomain(),
       ),
       transcription: StreamTranscriptionSettings(
         closedCaptionMode: transcription.closedCaptionMode,
-        mode: transcription.mode.toDomain(),
+        mode: transcription.mode.toSettingsDomain(),
+        languages: transcription.languages,
       ),
       backstage: StreamBackstageSettings(
         enabled: backstage.enabled,
@@ -194,13 +203,17 @@ extension CallSettingsExt on open.CallSettingsResponse {
       geofencing: StreamGeofencingSettings(
         names: geofencing.names,
       ),
+      limits: StreamLimitsSettings(
+        maxParticipants: limits.maxParticipants,
+        maxDurationSeconds: limits.maxDurationSeconds,
+      ),
     );
   }
 }
 
-extension on open.AudioSettingsDefaultDeviceEnum {
-  AudioSettingsRequestDefaultDeviceEnum toDomain() {
-    if (this == open.AudioSettingsDefaultDeviceEnum.speaker) {
+extension on open.AudioSettingsResponseDefaultDeviceEnum {
+  AudioSettingsRequestDefaultDeviceEnum toRequestDomain() {
+    if (this == open.AudioSettingsResponseDefaultDeviceEnum.speaker) {
       return AudioSettingsRequestDefaultDeviceEnum.speaker;
     } else {
       return AudioSettingsRequestDefaultDeviceEnum.earpiece;
@@ -208,11 +221,23 @@ extension on open.AudioSettingsDefaultDeviceEnum {
   }
 }
 
-extension on open.TranscriptionSettingsModeEnum {
-  TranscriptionSettingsMode toDomain() {
-    if (this == open.TranscriptionSettingsModeEnum.autoOn) {
+extension on open.VideoSettingsResponseCameraFacingEnum {
+  VideoSettingsRequestCameraFacingEnum toRequestDomain() {
+    if (this == open.VideoSettingsResponseCameraFacingEnum.front) {
+      return VideoSettingsRequestCameraFacingEnum.front;
+    } else if (this == open.VideoSettingsResponseCameraFacingEnum.back) {
+      return VideoSettingsRequestCameraFacingEnum.back;
+    } else {
+      return VideoSettingsRequestCameraFacingEnum.external_;
+    }
+  }
+}
+
+extension on open.TranscriptionSettingsResponseModeEnum {
+  TranscriptionSettingsMode toSettingsDomain() {
+    if (this == open.TranscriptionSettingsResponseModeEnum.autoOn) {
       return TranscriptionSettingsMode.autoOn;
-    } else if (this == open.TranscriptionSettingsModeEnum.available) {
+    } else if (this == open.TranscriptionSettingsResponseModeEnum.available) {
       return TranscriptionSettingsMode.available;
     } else {
       return TranscriptionSettingsMode.disabled;
@@ -220,8 +245,28 @@ extension on open.TranscriptionSettingsModeEnum {
   }
 }
 
-extension on open.HLSSettings {
-  StreamHlsSettings toDomain() {
+extension on open.NoiseCancellationSettings {
+  StreamNoiceCancellingSettings toSettingsDomain() {
+    return StreamNoiceCancellingSettings(
+      mode: mode.toSettingsDomain(),
+    );
+  }
+}
+
+extension on open.NoiseCancellationSettingsModeEnum {
+  NoiceCancellationSettingsMode toSettingsDomain() {
+    if (this == open.NoiseCancellationSettingsModeEnum.autoOn) {
+      return NoiceCancellationSettingsMode.autoOn;
+    } else if (this == open.NoiseCancellationSettingsModeEnum.available) {
+      return NoiceCancellationSettingsMode.available;
+    } else {
+      return NoiceCancellationSettingsMode.disabled;
+    }
+  }
+}
+
+extension on open.HLSSettingsResponse {
+  StreamHlsSettings toSettingsDomain() {
     return StreamHlsSettings(
       autoOn: autoOn,
       enabled: enabled,
@@ -230,33 +275,22 @@ extension on open.HLSSettings {
   }
 }
 
-extension on open.RecordSettingsModeEnum {
-  RecordSettingsMode toDomain() {
-    if (this == open.RecordSettingsModeEnum.autoOn) {
-      return RecordSettingsMode.autoOn;
-    } else if (this == open.RecordSettingsModeEnum.available) {
-      return RecordSettingsMode.available;
-    } else {
-      return RecordSettingsMode.disabled;
-    }
+extension on open.RTMPSettingsResponse {
+  StreamRtmpSettings toSettingsDomain() {
+    return StreamRtmpSettings(
+      quality: quality,
+      enabled: enabled,
+    );
   }
 }
 
-extension on open.RecordSettingsQualityEnum {
-  RecordSettingsQuality toDomain() {
-    if (this == open.RecordSettingsQualityEnum.n1440p) {
-      return RecordSettingsQuality.n1440p;
-    } else if (this == open.RecordSettingsQualityEnum.n1080p) {
-      return RecordSettingsQuality.n1080p;
-    } else if (this == open.RecordSettingsQualityEnum.n720p) {
-      return RecordSettingsQuality.n720p;
-    } else if (this == open.RecordSettingsQualityEnum.n480p) {
-      return RecordSettingsQuality.n480p;
-    } else if (this == open.RecordSettingsQualityEnum.n360p) {
-      return RecordSettingsQuality.n360p;
-    } else {
-      return RecordSettingsQuality.audioOnly;
-    }
+extension on open.TargetResolution {
+  StreamTargetResolution toSettingsDomain() {
+    return StreamTargetResolution(
+      height: height,
+      width: width,
+      bitrate: bitrate,
+    );
   }
 }
 
@@ -317,7 +351,7 @@ extension QueryCallsResponseExt on open.QueryCallsResponse {
   }
 }
 
-extension QueryMembersResponseExt on open.QueryMembersResponse {
+extension QueryMembersResponseExt on open.QueryCallMembersResponse {
   QueriedMembers toQueriedMembers(StreamCallCid callCid) {
     return QueriedMembers(
       members: members.toCallMembers(),
@@ -340,6 +374,7 @@ extension CallSessionResponseExt on open.CallSessionResponse {
       endedAt: endedAt,
       liveStartedAt: liveStartedAt,
       liveEndedAt: liveEndedAt,
+      timerEndsAt: timerEndsAt,
     );
   }
 }

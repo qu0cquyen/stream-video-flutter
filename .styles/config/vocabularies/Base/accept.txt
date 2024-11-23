@@ -9,12 +9,13 @@ API
 timeframe
 APNs
 Telehealth
-Flutter
+telemedicine
+[Ff]lutter
 Podfile
 protobuf
 protos
 proto
-Livestream
+[Ll]ivestream
 grayscale
 uni_links
 browsable
@@ -34,5 +35,8 @@ lecle_yoyo_player
 stream_video
 stream_video_push_notification
 screensharing
+[Ss]creen[Ss]hare
 Livestreaming
 livestreaming
+callee
+audio_room

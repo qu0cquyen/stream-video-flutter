@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -13,7 +13,13 @@ part of openapi.api;
 class WSClientEvent {
   /// Returns a new [WSClientEvent] instance.
   WSClientEvent({
-    this.connectionId,
+    this.cid,
+    required this.connectionId,
+    required this.createdAt,
+    this.me,
+    this.receivedAt,
+    this.type = 'user.updated',
+    required this.user,
   });
 
   ///
@@ -22,27 +28,77 @@ class WSClientEvent {
   /// source code must fall back to having a nullable type.
   /// Consider adding a "default:" property in the specification file to hide this note.
   ///
-  String? connectionId;
+  String? cid;
+
+  String connectionId;
+
+  DateTime createdAt;
+
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  OwnUserResponse? me;
+
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  DateTime? receivedAt;
+
+  String type;
+
+  UserEventPayload user;
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is WSClientEvent &&
-     other.connectionId == connectionId;
+    other.cid == cid &&
+    other.connectionId == connectionId &&
+    other.createdAt == createdAt &&
+    other.me == me &&
+    other.receivedAt == receivedAt &&
+    other.type == type &&
+    other.user == user;
 
   @override
   int get hashCode =>
     // ignore: unnecessary_parenthesis
-    (connectionId == null ? 0 : connectionId!.hashCode);
+    (cid == null ? 0 : cid!.hashCode) +
+    (connectionId.hashCode) +
+    (createdAt.hashCode) +
+    (me == null ? 0 : me!.hashCode) +
+    (receivedAt == null ? 0 : receivedAt!.hashCode) +
+    (type.hashCode) +
+    (user.hashCode);
 
   @override
-  String toString() => 'WSClientEvent[connectionId=$connectionId]';
+  String toString() => 'WSClientEvent[cid=$cid, connectionId=$connectionId, createdAt=$createdAt, me=$me, receivedAt=$receivedAt, type=$type, user=$user]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
-    if (this.connectionId != null) {
-      json[r'connection_id'] = this.connectionId;
+    if (this.cid != null) {
+      json[r'cid'] = this.cid;
     } else {
-      json[r'connection_id'] = null;
+      json[r'cid'] = null;
     }
+      json[r'connection_id'] = this.connectionId;
+      json[r'created_at'] = this.createdAt.toUtc().toIso8601String();
+    if (this.me != null) {
+      json[r'me'] = this.me;
+    } else {
+      json[r'me'] = null;
+    }
+    if (this.receivedAt != null) {
+      json[r'received_at'] = this.receivedAt!.toUtc().toIso8601String();
+    } else {
+      json[r'received_at'] = null;
+    }
+      json[r'type'] = this.type;
+      json[r'user'] = this.user;
     return json;
   }
 
@@ -65,7 +121,13 @@ class WSClientEvent {
       }());
 
       return WSClientEvent(
-        connectionId: mapValueOfType<String>(json, r'connection_id'),
+        cid: mapValueOfType<String>(json, r'cid'),
+        connectionId: mapValueOfType<String>(json, r'connection_id')!,
+        createdAt: mapDateTime(json, r'created_at', r'')!,
+        me: OwnUserResponse.fromJson(json[r'me']),
+        receivedAt: mapDateTime(json, r'received_at', r''),
+        type: mapValueOfType<String>(json, r'type')!,
+        user: UserEventPayload.fromJson(json[r'user'])!,
       );
     }
     return null;
@@ -113,6 +175,10 @@ class WSClientEvent {
 
   /// The list of required keys that must be present in a JSON.
   static const requiredKeys = <String>{
+    'connection_id',
+    'created_at',
+    'type',
+    'user',
   };
 }
 

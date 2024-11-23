@@ -2,29 +2,28 @@ import 'package:collection/collection.dart';
 import 'package:state_notifier/state_notifier.dart';
 
 import '../../../../stream_video.dart';
-import '../../../action/internal/lifecycle_action.dart';
+import '../../../errors/video_error.dart';
 import '../../../models/call_received_data.dart';
+import '../../../sfu/data/models/sfu_error.dart';
 
 final _logger = taggedLogger(tag: 'SV:CoordNotifier');
 
 mixin StateLifecycleMixin on StateNotifier<CallState> {
   void lifecycleUpdateUserId(
-    SetUserId action,
+    String userId,
   ) {
     _logger.d(
-      () => '[lifecycleUpdateUserId] userId: ${action.userId}, state: $state',
+      () => '[lifecycleUpdateUserId] userId: $userId, state: $state',
     );
     state = state.copyWith(
-      currentUserId: action.userId,
+      currentUserId: userId,
       status: CallStatus.idle(),
       sessionId: '',
       callParticipants: const [],
     );
   }
 
-  void lifecycleCallAccepted(
-    CallAccepted action,
-  ) {
+  void lifecycleCallAccepted() {
     final status = state.status;
     if (status is! CallStatusIncoming || status.acceptedByMe) {
       _logger.w(
@@ -37,30 +36,8 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     );
   }
 
-  void lifecycleCallRejected(
-    CallRejected stage,
-  ) {
-    final status = state.status;
-    if (status is! CallStatusIncoming || status.acceptedByMe) {
-      _logger.w(
-        () => '[lifecycleCallRejected] rejected (invalid status): $status',
-      );
-      return;
-    }
-    _logger.i(() => '[lifecycleCallRejected] stage: $stage, state: $state');
-    state = state.copyWith(
-      status: CallStatus.disconnected(
-        DisconnectReason.rejected(
-          byUserId: state.currentUserId,
-        ),
-      ),
-    );
-  }
-
-  void lifecycleCallEnded(
-    CallEnded stage,
-  ) {
-    _logger.i(() => '[lifecycleCallEnded] stage: $stage, state: $state');
+  void lifecycleCallEnded() {
+    _logger.i(() => '[lifecycleCallEnded] state: $state');
     state = state.copyWith(
       status: CallStatus.disconnected(
         DisconnectReason.ended(),
@@ -72,8 +49,8 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     );
   }
 
-  void lifecycleCallReceived(
-    CallReceived stage, {
+  void updateFromCallReceivedData(
+    CallReceivedData data, {
     bool ringing = false,
     bool notify = false,
   }) {
@@ -81,110 +58,77 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
       () => '[lifecycleCallReceived] ringing: $ringing'
           ', notify: $notify, state: $state',
     );
-    final status = stage.data.toCallStatus(state: state, ringing: ringing);
+
+    final status = data.toCallStatus(state: state, ringing: ringing);
     state = state.copyWith(
-      status: status,
-      createdByUserId: stage.data.metadata.details.createdBy.id,
-      settings: stage.data.metadata.settings,
-      egress: stage.data.metadata.details.egress,
-      ownCapabilities: stage.data.metadata.details.ownCapabilities.toList(),
-      callParticipants: stage.data.metadata.toCallParticipants(
+      status: data.toCallStatus(state: state, ringing: ringing),
+      isBackstage: data.metadata.details.backstage,
+      isRecording: data.metadata.details.recording,
+      isTranscribing: data.metadata.details.transcribing,
+      isBroadcasting: data.metadata.details.broadcasting,
+      blockedUserIds: data.metadata.details.blockedUserIds.toList(),
+      createdAt: data.metadata.details.createdAt,
+      updatedAt: data.metadata.details.updatedAt,
+      startsAt: data.metadata.details.startsAt,
+      endedAt: data.metadata.details.endedAt,
+      createdByUserId: data.metadata.details.createdBy.id,
+      custom: data.metadata.details.custom,
+      egress: data.metadata.details.egress,
+      rtmpIngress: data.metadata.details.rtmpIngress,
+      settings: data.metadata.settings,
+      ownCapabilities: data.metadata.details.ownCapabilities.toList(),
+      callParticipants: data.metadata.toCallParticipants(
         state,
         fromMembers: !status.isConnected,
       ),
-      createdAt: stage.data.metadata.details.createdAt,
-      startsAt: stage.data.metadata.details.startsAt,
-      endedAt: stage.data.metadata.details.endedAt,
-      liveStartedAt: stage.data.metadata.session.liveStartedAt,
-      liveEndedAt: stage.data.metadata.session.liveEndedAt,
-      isBackstage: stage.data.metadata.details.backstage,
-      isBroadcasting: stage.data.metadata.details.broadcasting,
-      isRecording: stage.data.metadata.details.recording,
+      liveStartedAt: data.metadata.session.liveStartedAt,
+      liveEndedAt: data.metadata.session.liveEndedAt,
     );
   }
 
-  void lifecycleCallCreated(
-    CallCreated stage, {
+  void updateFromCallCreatedData(
+    CallCreatedData data, {
+    required CallConnectOptions callConnectOptions,
     bool ringing = false,
-    List<RtcMediaDevice>? audioOutputs,
-    List<RtcMediaDevice>? audioInputs,
   }) {
-    var defaultAudioOutput = audioOutputs?.firstWhereOrNull((device) {
-      if (stage.data.metadata.settings.audio.defaultDevice ==
-          AudioSettingsRequestDefaultDeviceEnum.speaker) {
-        return device.id.equalsIgnoreCase(
-          AudioSettingsRequestDefaultDeviceEnum.speaker.value,
-        );
-      }
-
-      return !device.id.equalsIgnoreCase(
-        AudioSettingsRequestDefaultDeviceEnum.speaker.value,
-      );
-    });
-
-    if (defaultAudioOutput == null &&
-        audioOutputs != null &&
-        audioOutputs.isNotEmpty) {
-      defaultAudioOutput = audioOutputs.first;
-    }
-
-    final defaultAudioInput = audioInputs
-            ?.firstWhereOrNull((d) => d.label == defaultAudioOutput?.label) ??
-        audioInputs?.firstOrNull;
-
     _logger.d(() => '[lifecycleCallCreated] ringing: $ringing, state: $state');
-    state = state.copyWith(
-      status: stage.data.toCallStatus(state: state, ringing: ringing),
-      createdByUserId: stage.data.metadata.details.createdBy.id,
-      settings: stage.data.metadata.settings,
-      egress: stage.data.metadata.details.egress,
-      ownCapabilities: stage.data.metadata.details.ownCapabilities.toList(),
-      callParticipants: stage.data.metadata.toCallParticipants(
-        state,
-        fromMembers: true,
-      ),
-      createdAt: stage.data.metadata.details.createdAt,
-      startsAt: stage.data.metadata.details.startsAt,
-      endedAt: stage.data.metadata.details.endedAt,
-      liveStartedAt: stage.data.metadata.session.liveStartedAt,
-      liveEndedAt: stage.data.metadata.session.liveEndedAt,
-      isBackstage: stage.data.metadata.details.backstage,
-      isBroadcasting: stage.data.metadata.details.broadcasting,
-      isRecording: stage.data.metadata.details.recording,
-      audioOutputDevice: defaultAudioOutput,
-      audioInputDevice: defaultAudioInput,
-    );
+
+    state = state
+        .copyFromMetadata(
+          data.metadata,
+        )
+        .copyWith(
+          status: data.toCallStatus(state: state, ringing: ringing),
+          callParticipants: data.metadata.toCallParticipants(
+            state,
+            fromMembers: true,
+          ),
+          isRingingFlow: ringing,
+          audioOutputDevice: callConnectOptions.audioOutputDevice,
+          audioInputDevice: callConnectOptions.audioInputDevice,
+        );
   }
 
   void lifecycleCallRinging(
-    CallRinging stage,
+    CallRingingData data,
   ) {
     _logger.d(() => '[lifecycleCallRinging] state: $state');
-    state = state.copyWith(
-      status: stage.data.toCallStatus(state: state),
-      createdByUserId: stage.data.metadata.details.createdBy.id,
-      isRingingFlow: stage.data.ringing,
-      settings: stage.data.metadata.settings,
-      egress: stage.data.metadata.details.egress,
-      ownCapabilities: stage.data.metadata.details.ownCapabilities.toList(),
-      callParticipants: stage.data.metadata.toCallParticipants(
-        state,
-        fromMembers: true,
-      ),
-      createdAt: stage.data.metadata.details.createdAt,
-      startsAt: stage.data.metadata.details.startsAt,
-      endedAt: stage.data.metadata.details.endedAt,
-      liveStartedAt: stage.data.metadata.session.liveStartedAt,
-      liveEndedAt: stage.data.metadata.session.liveEndedAt,
-      isBackstage: stage.data.metadata.details.backstage,
-      isBroadcasting: stage.data.metadata.details.broadcasting,
-      isRecording: stage.data.metadata.details.recording,
-    );
+    state = state
+        .copyFromMetadata(
+          data.metadata,
+        )
+        .copyWith(
+          status: data.toCallStatus(state: state),
+          isRingingFlow: data.ringing,
+          ownCapabilities: data.metadata.details.ownCapabilities.toList(),
+          callParticipants: data.metadata.toCallParticipants(
+            state,
+            fromMembers: true,
+          ),
+        );
   }
 
-  void lifecycleCallJoining(
-    CallJoining stage,
-  ) {
+  void lifecycleCallJoining() {
     _logger.d(() => '[lifecycleCallJoining] state: $state');
     state = state.copyWith(
       status: CallStatus.joining(),
@@ -192,40 +136,45 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
   }
 
   void lifecycleCallJoined(
-    CallJoined stage,
-  ) {
+    CallJoinedData data, {
+    CallConnectOptions? callConnectOptions,
+  }) {
     final status = state.status.isJoining ? CallStatus.joined() : state.status;
     _logger.d(() => '[lifecycleCallJoined] state: $state;\nnewStatus: $status');
+
+    state = state
+        .copyFromMetadata(
+          data.metadata,
+        )
+        .copyWith(
+          status: status,
+          ownCapabilities: data.metadata.details.ownCapabilities.toList(),
+          callParticipants: data.metadata.toCallParticipants(
+            state,
+            fromMembers: true,
+          ),
+          audioOutputDevice: callConnectOptions?.audioOutputDevice,
+          audioInputDevice: callConnectOptions?.audioInputDevice,
+        );
+  }
+
+  void lifecycleCallReconnectingFailed() {
+    _logger.w(() => '[lifecycleCallReconnectingFailed] state: $state');
+
     state = state.copyWith(
-      status: status,
-      createdByUserId: stage.data.metadata.details.createdBy.id,
-      settings: stage.data.metadata.settings,
-      egress: stage.data.metadata.details.egress,
-      ownCapabilities: stage.data.metadata.details.ownCapabilities.toList(),
-      callParticipants: stage.data.metadata.toCallParticipants(
-        state,
-        fromMembers: true,
-      ),
-      createdAt: stage.data.metadata.details.createdAt,
-      startsAt: stage.data.metadata.details.startsAt,
-      endedAt: stage.data.metadata.details.endedAt,
-      liveStartedAt: stage.data.metadata.session.liveStartedAt,
-      liveEndedAt: stage.data.metadata.session.liveEndedAt,
-      isBackstage: stage.data.metadata.details.backstage,
-      isBroadcasting: stage.data.metadata.details.broadcasting,
-      isRecording: stage.data.metadata.details.recording,
+      status: CallStatus.reconnectingFailed(),
     );
   }
 
-  void lifecycleCallDisconnected(
-    CallDisconnected stage,
-  ) {
+  void lifecycleCallDisconnected({DisconnectReason? reason}) {
     _logger.w(() => '[lifecycleCallDisconnected] state: $state');
+
     state = state.copyWith(
       status: CallStatus.disconnected(
-        DisconnectReason.cancelled(
-          byUserId: state.currentUserId,
-        ),
+        reason ??
+            DisconnectReason.cancelled(
+              byUserId: state.currentUserId,
+            ),
       ),
       sessionId: '',
       callParticipants: const [],
@@ -235,10 +184,9 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     );
   }
 
-  void lifecycleCallTimeout(
-    CallTimeout stage,
-  ) {
+  void lifecycleCallTimeout() {
     _logger.e(() => '[lifecycleCallTimeout] state: $state');
+
     state = state.copyWith(
       status: CallStatus.disconnected(
         const DisconnectReason.timeout(),
@@ -250,15 +198,19 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     );
   }
 
-  void lifecycleCallConnectingAction(
-    CallConnecting stage,
-  ) {
+  void lifecycleCallConnecting({
+    required int attempt,
+    SfuReconnectionStrategy? strategy,
+  }) {
     _logger.d(() => '[lifecycleCallConnectingAction] state: $state');
     final CallStatus status;
-    if (stage.attempt > 0) {
+
+    if (strategy == SfuReconnectionStrategy.migrate) {
+      status = CallStatus.migrating();
+    } else if (strategy != SfuReconnectionStrategy.unspecified) {
       status = CallStatus.reconnecting(
-        stage.attempt,
-        isFastReconnectAttempt: stage.isFastReconnectAttempt,
+        attempt,
+        isFastReconnectAttempt: strategy == SfuReconnectionStrategy.fast,
       );
     } else {
       status = CallStatus.connecting();
@@ -268,13 +220,13 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     );
   }
 
-  void lifecycleCallConnectFailed(
-    ConnectFailed stage,
-  ) {
+  void lifecycleCallConnectFailed({
+    required VideoError error,
+  }) {
     _logger.e(() => '[lifecycleCallConnectFailed] state: $state');
     state = state.copyWith(
       status: CallStatus.disconnected(
-        DisconnectReason.failure(stage.error),
+        DisconnectReason.failure(error),
       ),
       localStats: LocalStats.empty(),
       publisherStats: PeerConnectionStats.empty(),
@@ -282,32 +234,21 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
     );
   }
 
-  void lifecycleCallSessionStart(
-    CallSessionStart action, {
+  void lifecycleCallSessionStart({
+    required String sessionId,
     LocalStats? localStats,
   }) {
     _logger.d(() => '[lifecycleCallSessionStart] state: $state');
     state = state.copyWith(
-      sessionId: action.sessionId,
+      sessionId: sessionId,
       localStats: localStats,
-      //status: CallStatus.connecting(),
     );
   }
 
-  void lifecycleCallConnected(
-    CallConnected stage,
-  ) {
+  void lifecycleCallConnected() {
     _logger.d(() => '[lifecycleCallConnected] state: $state');
     state = state.copyWith(
       status: CallStatus.connected(),
-    );
-  }
-
-  void lifecycleCallMigrating() {
-    _logger.d(() => '[lifecycleCallMigrating] state: $state');
-    state = state.copyWith(
-      status: const CallStatusMigrating(),
-      callParticipants: const [],
     );
   }
 
@@ -325,6 +266,19 @@ mixin StateLifecycleMixin on StateNotifier<CallState> {
       subscriberStats: subscriberStats,
       latencyHistory: latencyHistory,
     );
+  }
+
+  Future<Result<None>> validateUserId(String currentUserId) async {
+    final stateUserId = state.currentUserId;
+    if (currentUserId.isEmpty) {
+      return Result.error('no userId');
+    }
+
+    if (stateUserId.isEmpty || stateUserId != currentUserId) {
+      lifecycleUpdateUserId(currentUserId);
+    }
+
+    return const Result.success(none);
   }
 }
 
@@ -353,7 +307,7 @@ extension on CallMetadata {
 
       result.add(
         currentState?.copyWith(
-              role: member?.role ?? user?.role ?? '',
+              roles: member?.roles ?? user?.roles ?? [],
               name: user?.name ?? '',
               custom: user?.custom ?? {},
               image: user?.image ?? '',
@@ -363,7 +317,7 @@ extension on CallMetadata {
             ) ??
             CallParticipantState(
               userId: userId,
-              role: member?.role ?? user?.role ?? '',
+              roles: member?.roles ?? user?.roles ?? [],
               name: user?.name ?? '',
               custom: user?.custom ?? {},
               image: user?.image ?? '',
@@ -386,6 +340,7 @@ extension on CallCreatedData {
   }) {
     final status = state.status;
     final createdByMe = state.currentUserId == metadata.details.createdBy.id;
+
     if (ringing && !status.isOutgoing && createdByMe) {
       return CallStatus.outgoing();
     } else if (ringing && !status.isIncoming && !createdByMe) {
@@ -403,6 +358,7 @@ extension on CallReceivedData {
   }) {
     final status = state.status;
     final createdByMe = state.currentUserId == metadata.details.createdBy.id;
+
     if (ringing && !status.isOutgoing && createdByMe) {
       return CallStatus.outgoing();
     } else if (ringing && !status.isIncoming && !createdByMe) {
@@ -427,8 +383,4 @@ extension on CallRingingData {
       return status;
     }
   }
-}
-
-extension on String {
-  bool equalsIgnoreCase(String other) => toUpperCase() == other.toUpperCase();
 }

@@ -14,6 +14,7 @@ class OpenApiEvent with EquatableMixin {
     this.connected,
     this.healthCheck,
     this.callCreated,
+    this.callMissed,
     this.callRing,
     this.callNotification,
     this.callAccepted,
@@ -24,6 +25,7 @@ class OpenApiEvent with EquatableMixin {
     this.callSessionEnded,
     this.callSessionParticipantJoined,
     this.callSessionParticipantLeft,
+    this.callSessionParticipantCountUpdated,
     this.callPermissionRequest,
     this.callPermissionsUpdated,
     this.callUserBlocked,
@@ -32,6 +34,7 @@ class OpenApiEvent with EquatableMixin {
     this.callRecordingStopped,
     this.callBroadcastingStarted,
     this.callBroadcastingStopped,
+    this.callBroadcastingFailed,
     this.callLiveStarted,
     this.callMemberAdded,
     this.callMemberRemoved,
@@ -41,6 +44,10 @@ class OpenApiEvent with EquatableMixin {
     this.callUserMuted,
     this.callRecordingReady,
     this.callRecordingFailed,
+    this.callTranscriptionStarted,
+    this.callTranscriptionStopped,
+    this.callTranscriptionFailed,
+    this.callClosedCaption,
     this.custom,
     this.unknown,
   });
@@ -91,6 +98,10 @@ class OpenApiEvent with EquatableMixin {
       case EventType.callSessionParticipantLeft:
         final event = open.CallSessionParticipantLeftEvent.fromJson(jsonObj);
         return result.copyWith(callSessionParticipantLeft: event);
+      case EventType.callSessionParticipantCountUpdated:
+        final event =
+            open.CallSessionParticipantCountsUpdatedEvent.fromJson(jsonObj);
+        return result.copyWith(callSessionParticipantCountUpdated: event);
       case EventType.callPermissionRequest:
         final event = open.PermissionRequestEvent.fromJson(jsonObj);
         return result.copyWith(callPermissionRequest: event);
@@ -110,11 +121,14 @@ class OpenApiEvent with EquatableMixin {
         final event = open.CallRecordingStoppedEvent.fromJson(jsonObj);
         return result.copyWith(callRecordingStopped: event);
       case EventType.callBroadcastingStarted:
-        final event = open.CallBroadcastingStartedEvent.fromJson(jsonObj);
+        final event = open.CallHLSBroadcastingStartedEvent.fromJson(jsonObj);
         return result.copyWith(callBroadcastingStarted: event);
       case EventType.callBroadcastingStopped:
-        final event = open.CallBroadcastingStoppedEvent.fromJson(jsonObj);
+        final event = open.CallHLSBroadcastingStoppedEvent.fromJson(jsonObj);
         return result.copyWith(callBroadcastingStopped: event);
+      case EventType.callBroadcastingFailed:
+        final event = open.CallHLSBroadcastingFailedEvent.fromJson(jsonObj);
+        return result.copyWith(callBroadcastingFailed: event);
       case EventType.callLiveStarted:
         final event = open.CallLiveStartedEvent.fromJson(jsonObj);
         return result.copyWith(callLiveStarted: event);
@@ -143,7 +157,7 @@ class OpenApiEvent with EquatableMixin {
         final event = open.CallNotificationEvent.fromJson(jsonObj);
         return result.copyWith(callNotification: event);
       case EventType.callUserMuted:
-        final event = open.CallUserMuted.fromJson(jsonObj);
+        final event = open.CallUserMutedEvent.fromJson(jsonObj);
         return result.copyWith(callUserMuted: event);
       case EventType.callRecordingReady:
         final event = open.CallRecordingReadyEvent.fromJson(jsonObj);
@@ -151,6 +165,21 @@ class OpenApiEvent with EquatableMixin {
       case EventType.callRecordingFailed:
         final event = open.CallRecordingFailedEvent.fromJson(jsonObj);
         return result.copyWith(callRecordingFailed: event);
+      case EventType.callMissed:
+        final event = open.CallMissedEvent.fromJson(jsonObj);
+        return result.copyWith(callMissed: event);
+      case EventType.callTranscriptionStarted:
+        final event = open.CallTranscriptionStartedEvent.fromJson(jsonObj);
+        return result.copyWith(callTranscriptionStarted: event);
+      case EventType.callTranscriptionStopped:
+        final event = open.CallTranscriptionStoppedEvent.fromJson(jsonObj);
+        return result.copyWith(callTranscriptionStopped: event);
+      case EventType.callTranscriptionFailed:
+        final event = open.CallTranscriptionFailedEvent.fromJson(jsonObj);
+        return result.copyWith(callTranscriptionFailed: event);
+      case EventType.callClosedCaption:
+        final event = open.ClosedCaptionEvent.fromJson(jsonObj);
+        return result.copyWith(callClosedCaption: event);
       case EventType.unknown:
         streamLog.e(_tag, () => '[fromJson] unexpected event: $jsonObj');
         return result.copyWith(unknown: jsonObj);
@@ -161,6 +190,7 @@ class OpenApiEvent with EquatableMixin {
   final open.ConnectedEvent? connected;
   final open.HealthCheckEvent? healthCheck;
   final open.CallCreatedEvent? callCreated;
+  final open.CallMissedEvent? callMissed;
   final open.CallRingEvent? callRing;
   final open.CallNotificationEvent? callNotification;
   final open.CallAcceptedEvent? callAccepted;
@@ -171,23 +201,30 @@ class OpenApiEvent with EquatableMixin {
   final open.CallSessionEndedEvent? callSessionEnded;
   final open.CallSessionParticipantJoinedEvent? callSessionParticipantJoined;
   final open.CallSessionParticipantLeftEvent? callSessionParticipantLeft;
+  final open.CallSessionParticipantCountsUpdatedEvent?
+      callSessionParticipantCountUpdated;
   final open.PermissionRequestEvent? callPermissionRequest;
   final open.UpdatedCallPermissionsEvent? callPermissionsUpdated;
   final open.BlockedUserEvent? callUserBlocked;
   final open.UnblockedUserEvent? callUserUnblocked;
   final open.CallRecordingStartedEvent? callRecordingStarted;
   final open.CallRecordingStoppedEvent? callRecordingStopped;
-  final open.CallBroadcastingStartedEvent? callBroadcastingStarted;
-  final open.CallBroadcastingStoppedEvent? callBroadcastingStopped;
+  final open.CallHLSBroadcastingStartedEvent? callBroadcastingStarted;
+  final open.CallHLSBroadcastingStoppedEvent? callBroadcastingStopped;
+  final open.CallHLSBroadcastingFailedEvent? callBroadcastingFailed;
   final open.CallLiveStartedEvent? callLiveStarted;
   final open.CallMemberAddedEvent? callMemberAdded;
   final open.CallMemberRemovedEvent? callMemberRemoved;
   final open.CallMemberUpdatedEvent? callMemberUpdated;
   final open.CallMemberUpdatedPermissionEvent? callMemberUpdatedPermission;
   final open.CallReactionEvent? callReaction;
-  final open.CallUserMuted? callUserMuted;
+  final open.CallUserMutedEvent? callUserMuted;
   final open.CallRecordingReadyEvent? callRecordingReady;
   final open.CallRecordingFailedEvent? callRecordingFailed;
+  final open.CallTranscriptionStartedEvent? callTranscriptionStarted;
+  final open.CallTranscriptionStoppedEvent? callTranscriptionStopped;
+  final open.CallTranscriptionFailedEvent? callTranscriptionFailed;
+  final open.ClosedCaptionEvent? callClosedCaption;
   final open.CustomVideoEvent? custom;
   final Object? unknown;
 
@@ -196,6 +233,7 @@ class OpenApiEvent with EquatableMixin {
     open.ConnectedEvent? connected,
     open.HealthCheckEvent? healthCheck,
     open.CallCreatedEvent? callCreated,
+    open.CallMissedEvent? callMissed,
     open.CallRingEvent? callRing,
     open.CallNotificationEvent? callNotification,
     open.CallAcceptedEvent? callAccepted,
@@ -206,23 +244,30 @@ class OpenApiEvent with EquatableMixin {
     open.CallSessionEndedEvent? callSessionEnded,
     open.CallSessionParticipantJoinedEvent? callSessionParticipantJoined,
     open.CallSessionParticipantLeftEvent? callSessionParticipantLeft,
+    open.CallSessionParticipantCountsUpdatedEvent?
+        callSessionParticipantCountUpdated,
     open.PermissionRequestEvent? callPermissionRequest,
     open.UpdatedCallPermissionsEvent? callPermissionsUpdated,
     open.BlockedUserEvent? callUserBlocked,
     open.UnblockedUserEvent? callUserUnblocked,
     open.CallRecordingStartedEvent? callRecordingStarted,
     open.CallRecordingStoppedEvent? callRecordingStopped,
-    open.CallBroadcastingStartedEvent? callBroadcastingStarted,
-    open.CallBroadcastingStoppedEvent? callBroadcastingStopped,
+    open.CallHLSBroadcastingStartedEvent? callBroadcastingStarted,
+    open.CallHLSBroadcastingStoppedEvent? callBroadcastingStopped,
+    open.CallHLSBroadcastingFailedEvent? callBroadcastingFailed,
     open.CallLiveStartedEvent? callLiveStarted,
     open.CallMemberAddedEvent? callMemberAdded,
     open.CallMemberRemovedEvent? callMemberRemoved,
     open.CallMemberUpdatedEvent? callMemberUpdated,
     open.CallMemberUpdatedPermissionEvent? callMemberUpdatedPermission,
     open.CallReactionEvent? callReaction,
-    open.CallUserMuted? callUserMuted,
+    open.CallUserMutedEvent? callUserMuted,
     open.CallRecordingReadyEvent? callRecordingReady,
     open.CallRecordingFailedEvent? callRecordingFailed,
+    open.CallTranscriptionStartedEvent? callTranscriptionStarted,
+    open.CallTranscriptionStoppedEvent? callTranscriptionStopped,
+    open.CallTranscriptionFailedEvent? callTranscriptionFailed,
+    open.ClosedCaptionEvent? callClosedCaption,
     open.CustomVideoEvent? custom,
     Object? unknown,
   }) {
@@ -231,6 +276,7 @@ class OpenApiEvent with EquatableMixin {
       connected: connected ?? this.connected,
       healthCheck: healthCheck ?? this.healthCheck,
       callCreated: callCreated ?? this.callCreated,
+      callMissed: callMissed ?? this.callMissed,
       callRing: callRing ?? this.callRing,
       callNotification: callNotification ?? this.callNotification,
       callAccepted: callAccepted ?? this.callAccepted,
@@ -243,6 +289,8 @@ class OpenApiEvent with EquatableMixin {
           callSessionParticipantJoined ?? this.callSessionParticipantJoined,
       callSessionParticipantLeft:
           callSessionParticipantLeft ?? this.callSessionParticipantLeft,
+      callSessionParticipantCountUpdated: callSessionParticipantCountUpdated ??
+          this.callSessionParticipantCountUpdated,
       callPermissionRequest:
           callPermissionRequest ?? this.callPermissionRequest,
       callPermissionsUpdated:
@@ -255,6 +303,8 @@ class OpenApiEvent with EquatableMixin {
           callBroadcastingStarted ?? this.callBroadcastingStarted,
       callBroadcastingStopped:
           callBroadcastingStopped ?? this.callBroadcastingStopped,
+      callBroadcastingFailed:
+          callBroadcastingFailed ?? this.callBroadcastingFailed,
       callLiveStarted: callLiveStarted ?? this.callLiveStarted,
       callMemberAdded: callMemberAdded ?? this.callMemberAdded,
       callMemberRemoved: callMemberRemoved ?? this.callMemberRemoved,
@@ -265,6 +315,13 @@ class OpenApiEvent with EquatableMixin {
       callUserMuted: callUserMuted ?? this.callUserMuted,
       callRecordingReady: callRecordingReady ?? this.callRecordingReady,
       callRecordingFailed: callRecordingFailed ?? this.callRecordingFailed,
+      callTranscriptionStarted:
+          callTranscriptionStarted ?? this.callTranscriptionStarted,
+      callTranscriptionStopped:
+          callTranscriptionStopped ?? this.callTranscriptionStopped,
+      callTranscriptionFailed:
+          callTranscriptionFailed ?? this.callTranscriptionFailed,
+      callClosedCaption: callClosedCaption ?? this.callClosedCaption,
       custom: custom ?? this.custom,
       unknown: unknown ?? this.unknown,
     );
@@ -279,6 +336,7 @@ class OpenApiEvent with EquatableMixin {
         connected,
         healthCheck,
         callCreated,
+        callMissed,
         callRing,
         callNotification,
         callAccepted,
@@ -289,6 +347,7 @@ class OpenApiEvent with EquatableMixin {
         callSessionEnded,
         callSessionParticipantJoined,
         callSessionParticipantLeft,
+        callSessionParticipantCountUpdated,
         callPermissionRequest,
         callPermissionsUpdated,
         callUserBlocked,
@@ -303,6 +362,13 @@ class OpenApiEvent with EquatableMixin {
         callMemberUpdated,
         callMemberUpdatedPermission,
         callReaction,
+        callUserMuted,
+        callRecordingReady,
+        callRecordingFailed,
+        callTranscriptionStarted,
+        callTranscriptionStopped,
+        callTranscriptionFailed,
+        callClosedCaption,
         custom,
         unknown,
       ];
