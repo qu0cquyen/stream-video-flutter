@@ -5,9 +5,7 @@ import '../../../call_state.dart';
 import '../../../logger/impl/tagged_logger.dart';
 import '../../../models/call_participant_state.dart';
 import '../../../models/call_preferences.dart';
-import '../../../models/call_status.dart';
 import '../../../models/call_track_state.dart';
-import '../../../models/disconnect_reason.dart';
 import '../../../sfu/data/events/sfu_events.dart';
 import '../../../sfu/sfu_extensions.dart';
 
@@ -19,23 +17,13 @@ mixin StateSfuMixin on StateNotifier<CallState> {
   void sfuParticipantLeft(
     SfuParticipantLeftEvent event,
   ) {
+    _logger.d(() => '[sfuParticipantLeft] ${state.sessionId}; event: $event');
     final callParticipants = [...state.callParticipants]..removeWhere(
         (participant) =>
             participant.userId == event.participant.userId &&
             participant.sessionId == event.participant.sessionId,
       );
 
-    if (callParticipants.length == 1 &&
-        callParticipants.first.userId == state.currentUserId &&
-        state.isRingingFlow &&
-        callPreferences.dropIfAloneInRingingFlow) {
-      state = state.copyWith(
-        status: CallStatus.disconnected(
-          DisconnectReason.lastParticipantLeft(),
-        ),
-        callParticipants: callParticipants,
-      );
-    }
     state = state.copyWith(
       callParticipants: callParticipants,
     );
@@ -161,9 +149,9 @@ mixin StateSfuMixin on StateNotifier<CallState> {
           return it.userId == participant.userId &&
               it.sessionId == participant.sessionId;
         });
-        if (state.sessionId == update?.sessionId) {
+        if (update != null) {
           return participant.copyWith(
-            connectionQuality: update?.connectionQuality,
+            connectionQuality: update.connectionQuality,
           );
         } else {
           return participant;
@@ -181,7 +169,7 @@ mixin StateSfuMixin on StateNotifier<CallState> {
     final isLocal = state.currentUserId == event.participant.userId;
     final participant = CallParticipantState(
       userId: event.participant.userId,
-      role: '',
+      roles: const [],
       name: event.participant.userName,
       custom: event.participant.custom,
       image: event.participant.userImage,
@@ -204,6 +192,39 @@ mixin StateSfuMixin on StateNotifier<CallState> {
       callParticipants: [
         ...participants,
         if (!isExisting) participant,
+      ],
+    );
+  }
+
+  void sfuParticipantUpdated(
+    SfuParticipantUpdatedEvent event,
+  ) {
+    _logger.d(
+      () => '[sfuParticipantUpdated] ${state.sessionId}; event: $event',
+    );
+    final participant = event.participant;
+
+    final participants = state.callParticipants.map((it) {
+      if (it.userId == participant.userId &&
+          it.sessionId == participant.sessionId) {
+        return it.copyWith(
+          name: participant.userName,
+          custom: participant.custom,
+          image: participant.userImage,
+          trackIdPrefix: participant.trackLookupPrefix,
+          audioLevel: participant.audioLevel,
+          isSpeaking: participant.isSpeaking,
+          isDominantSpeaker: participant.isDominantSpeaker,
+          connectionQuality: participant.connectionQuality,
+          roles: participant.roles,
+        );
+      } else {
+        return it;
+      }
+    });
+    state = state.copyWith(
+      callParticipants: [
+        ...participants,
       ],
     );
   }

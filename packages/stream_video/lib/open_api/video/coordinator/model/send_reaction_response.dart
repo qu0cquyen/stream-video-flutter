@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -17,15 +17,15 @@ class SendReactionResponse {
     required this.reaction,
   });
 
-  /// Duration of the request in human-readable format
+  /// Duration of the request in milliseconds
   String duration;
 
   ReactionResponse reaction;
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is SendReactionResponse &&
-     other.duration == duration &&
-     other.reaction == reaction;
+    other.duration == duration &&
+    other.reaction == reaction;
 
   @override
   int get hashCode =>

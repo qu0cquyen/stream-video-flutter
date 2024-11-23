@@ -1,25 +1,28 @@
 // ignore_for_file: deprecated_member_use_from_same_package
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:collection/collection.dart';
-import 'package:flutter/foundation.dart';
-import 'package:internet_connection_checker/internet_connection_checker.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:internet_connection_checker_plus/internet_connection_checker_plus.dart';
 import 'package:meta/meta.dart';
-import 'package:rxdart/rxdart.dart';
+import 'package:synchronized/synchronized.dart';
 
+import '../../protobuf/video/sfu/event/events.pb.dart' show ReconnectDetails;
 import '../../stream_video.dart';
 import '../../version.g.dart';
-import '../action/internal/lifecycle_action.dart';
 import '../coordinator/models/coordinator_models.dart';
+import '../coordinator/open_api/error/open_api_error.dart';
 import '../errors/video_error_composer.dart';
 import '../models/call_received_data.dart';
-import '../retry/retry_policy.dart';
 import '../sfu/data/events/sfu_events.dart';
+import '../sfu/data/models/sfu_error.dart';
 import '../shared_emitter.dart';
 import '../state_emitter.dart';
 import '../utils/cancelable_operation.dart';
 import '../utils/cancelables.dart';
+import '../utils/extensions.dart';
 import '../utils/future.dart';
 import '../utils/standard.dart';
 import '../webrtc/model/stats/rtc_ice_candidate_pair.dart';
@@ -28,6 +31,7 @@ import '../webrtc/model/stats/rtc_outbound_rtp_video_stream.dart';
 import '../webrtc/rtc_manager.dart';
 import '../webrtc/sdp/editor/sdp_editor_impl.dart';
 import '../webrtc/sdp/policy/sdp_policy.dart';
+import '../ws/ws.dart';
 import 'permissions/permissions_manager.dart';
 import 'session/call_session.dart';
 import 'session/call_session_factory.dart';
@@ -40,7 +44,9 @@ typedef OnCallPermissionRequest = void Function(
 typedef GetCurrentUserId = String? Function();
 
 typedef SetActiveCall = Future<void> Function(Call?);
-typedef GetActiveCallCid = StreamCallCid? Function();
+typedef SetOutgoingCall = Future<void> Function(Call?);
+typedef GetActiveCall = Call? Function();
+typedef GetOutgoingCall = Call? Function();
 
 const _idState = 1;
 const _idUserId = 2;
@@ -49,12 +55,10 @@ const _idSessionEvents = 4;
 const _idSessionStats = 5;
 const _idConnect = 6;
 const _idAwait = 7;
+const _idReconnect = 7;
+const _idFastReconnectTimeout = 8;
 
 const _tag = 'SV:Call';
-
-const _reconnectTimeout = Duration(seconds: 30);
-const _fastReconnectTimeout = Duration(seconds: kDebugMode ? 10 : 3);
-
 int _callSeq = 1;
 
 /// Represents a [Call] in which you can connect to.
@@ -65,9 +69,7 @@ class Call {
   factory Call({
     required StreamCallCid callCid,
     required CoordinatorClient coordinatorClient,
-    required StateEmitter<User?> currentUser,
-    required SetActiveCall setActiveCall,
-    required GetActiveCallCid getActiveCallCid,
+    required StreamVideo streamVideo,
     RetryPolicy? retryPolicy,
     SdpPolicy? sdpPolicy,
     CallPreferences? preferences,
@@ -76,9 +78,7 @@ class Call {
     return Call._internal(
       callCid: callCid,
       coordinatorClient: coordinatorClient,
-      currentUser: currentUser,
-      setActiveCall: setActiveCall,
-      getActiveCallCid: getActiveCallCid,
+      streamVideo: streamVideo,
       retryPolicy: retryPolicy,
       sdpPolicy: sdpPolicy,
       preferences: preferences,
@@ -91,9 +91,7 @@ class Call {
   factory Call.fromCreated({
     required CallCreatedData data,
     required CoordinatorClient coordinatorClient,
-    required StateEmitter<User?> currentUser,
-    required SetActiveCall setActiveCall,
-    required GetActiveCallCid getActiveCallCid,
+    required StreamVideo streamVideo,
     RetryPolicy? retryPolicy,
     SdpPolicy? sdpPolicy,
     CallPreferences? preferences,
@@ -102,13 +100,16 @@ class Call {
     return Call._internal(
       callCid: data.callCid,
       coordinatorClient: coordinatorClient,
-      currentUser: currentUser,
-      setActiveCall: setActiveCall,
-      getActiveCallCid: getActiveCallCid,
+      streamVideo: streamVideo,
       retryPolicy: retryPolicy,
       sdpPolicy: sdpPolicy,
       preferences: preferences,
-    ).also((it) => it._stateManager.lifecycleCallCreated(CallCreated(data)));
+    ).also(
+      (it) => it._stateManager.updateFromCallCreatedData(
+        data,
+        callConnectOptions: it.connectOptions,
+      ),
+    );
   }
 
   /// Do not use the factory directly,
@@ -117,9 +118,7 @@ class Call {
   factory Call.fromRinging({
     required CallRingingData data,
     required CoordinatorClient coordinatorClient,
-    required StateEmitter<User?> currentUser,
-    required SetActiveCall setActiveCall,
-    required GetActiveCallCid getActiveCallCid,
+    required StreamVideo streamVideo,
     RetryPolicy? retryPolicy,
     SdpPolicy? sdpPolicy,
     CallPreferences? preferences,
@@ -128,21 +127,17 @@ class Call {
     return Call._internal(
       callCid: data.callCid,
       coordinatorClient: coordinatorClient,
-      currentUser: currentUser,
-      setActiveCall: setActiveCall,
-      getActiveCallCid: getActiveCallCid,
+      streamVideo: streamVideo,
       retryPolicy: retryPolicy,
       sdpPolicy: sdpPolicy,
       preferences: preferences,
-    ).also((it) => it._stateManager.lifecycleCallRinging(CallRinging(data)));
+    ).also((it) => it._stateManager.lifecycleCallRinging(data));
   }
 
   factory Call._internal({
     required StreamCallCid callCid,
     required CoordinatorClient coordinatorClient,
-    required StateEmitter<User?> currentUser,
-    required SetActiveCall setActiveCall,
-    required GetActiveCallCid getActiveCallCid,
+    required StreamVideo streamVideo,
     RetryPolicy? retryPolicy,
     SdpPolicy? sdpPolicy,
     CallPreferences? preferences,
@@ -151,22 +146,23 @@ class Call {
     final finalCallPreferences = preferences ?? DefaultCallPreferences();
     final finalRetryPolicy = retryPolicy ?? const RetryPolicy();
     final finalSdpPolicy = sdpPolicy ?? const SdpPolicy();
+
     final stateManager = _makeStateManager(
       callCid,
       coordinatorClient,
-      currentUser,
+      streamVideo.state.user,
       finalCallPreferences,
     );
+
     final permissionManager = _makePermissionAwareManager(
       callCid,
       coordinatorClient,
       stateManager,
     );
+
     return Call._(
       coordinatorClient: coordinatorClient,
-      currentUser: currentUser,
-      setActiveCall: setActiveCall,
-      getActiveCallCid: getActiveCallCid,
+      streamVideo: streamVideo,
       preferences: finalCallPreferences,
       stateManager: stateManager,
       credentials: credentials,
@@ -177,10 +173,8 @@ class Call {
   }
 
   Call._({
-    required StateEmitter<User?> currentUser,
-    required SetActiveCall setActiveCall,
-    required GetActiveCallCid getActiveCallCid,
     required CoordinatorClient coordinatorClient,
+    required StreamVideo streamVideo,
     required CallPreferences preferences,
     required CallStateNotifier stateManager,
     required PermissionsManager permissionManager,
@@ -193,76 +187,66 @@ class Call {
         ),
         _stateManager = stateManager,
         _permissionsManager = permissionManager,
-        _getCurrentUserId = (() => currentUser.valueOrNull?.id),
-        _currentUserIdUpdates = currentUser
-            .asStream()
-            .map((it) => it?.id)
-            .whereNotNull()
-            .distinct(),
-        _setActiveCall = setActiveCall,
-        _getActiveCallCid = getActiveCallCid,
         _coordinatorClient = coordinatorClient,
+        _streamVideo = streamVideo,
         _preferences = preferences,
         _retryPolicy = retryPolicy,
-        _credentials = credentials {
+        _credentials = credentials,
+        dynascaleManager = DynascaleManager(stateManager: stateManager) {
     streamLog.i(_tag, () => '<init> state: ${stateManager.callState}');
+
     if (stateManager.callState.isRingingFlow) {
-      _observeState();
-      _observeEvents();
-      _observeUserId();
+      _init();
     }
   }
 
   late final _logger = taggedLogger(tag: '$_tag-${_callSeq++}');
   late final _subscriptions = Subscriptions();
   late final _cancelables = Cancelables();
+  late final _callInitLock = Lock();
+  late final _callJoinLock = Lock();
+  late final _callReconnectLock = Lock();
 
-  final GetCurrentUserId _getCurrentUserId;
-  final Stream<String> _currentUserIdUpdates;
-  final SetActiveCall _setActiveCall;
-  final GetActiveCallCid _getActiveCallCid;
   final CoordinatorClient _coordinatorClient;
+  final StreamVideo _streamVideo;
   final RetryPolicy _retryPolicy;
   final CallPreferences _preferences;
   final CallSessionFactory _sessionFactory;
   final CallStateNotifier _stateManager;
   final PermissionsManager _permissionsManager;
+  final DynascaleManager dynascaleManager;
 
   CallCredentials? _credentials;
-  int _reconnectAttempt = 0;
+  CallSession? _session;
+  CallSession? _previousSession;
 
-  StreamCallCid get callCid => state.value.callCid;
+  int _reconnectAttempts = 0;
+  Duration _fastReconnectDeadline = Duration.zero;
+  SfuReconnectionStrategy _reconnectStrategy =
+      SfuReconnectionStrategy.unspecified;
+  Future<InternetStatus>? _awaitNetworkAvailableFuture;
+  bool _initialized = false;
 
-  StreamCallType get type => state.value.callType;
+  final List<Timer> _reactionTimers = [];
 
   String get id => state.value.callId;
+  StreamCallCid get callCid => state.value.callCid;
+  StreamCallType get type => state.value.callType;
+  bool get isActiveCall =>
+      _streamVideo.state.activeCall.valueOrNull?.callCid == callCid;
 
   StateEmitter<CallState> get state => _stateManager.callStateStream;
 
   SharedEmitter<CallStats> get stats => _stats;
   late final _stats = MutableSharedEmitterImpl<CallStats>();
 
-  @Deprecated('Use `callEvents` instead')
-  SharedEmitter<SfuEvent> get events => _events;
-  final _events = MutableSharedEmitterImpl<SfuEvent>();
-
-  @Deprecated('Use `callEvents` instead')
-  SharedEmitter<CoordinatorCallEvent> get coordinatorEvents =>
-      _coordinatorEvents;
-  final _coordinatorEvents = MutableSharedEmitterImpl<CoordinatorCallEvent>();
-
   SharedEmitter<StreamCallEvent> get callEvents => _callEvents;
   final _callEvents = MutableSharedEmitterImpl<StreamCallEvent>();
 
   OnCallPermissionRequest? onPermissionRequest;
 
-  final _status = MutableStateEmitterImpl<_ConnectionStatus>(
-    _ConnectionStatus.disconnected,
-  );
-
-  CallSession? _session;
-
   CallConnectOptions _connectOptions = const CallConnectOptions();
+  CallConnectOptions? _connectOptionsOverride;
 
   @override
   String toString() {
@@ -270,63 +254,109 @@ class Call {
   }
 
   CallConnectOptions get connectOptions {
-    return _connectOptions;
+    return _connectOptionsOverride ?? _connectOptions;
   }
 
+  /// It is better to pass the [connectOptions] to [join] method,
+  /// setting it directly has to be done carefully. Depending on the moment in the call lifecycle,
+  /// it might be overwritten by default configuration or it might be too late to apply the changes.
   set connectOptions(CallConnectOptions connectOptions) {
-    final status = _status.value;
-    if (status == _ConnectionStatus.connected) {
+    if (state.value.status is CallStatusConnected) {
       _logger.w(
         () => '[setConnectOptions] rejected (connectOptions must be'
             ' set before invoking `connect`)',
       );
+
       return;
     }
+
     _logger.d(() => '[setConnectOptions] connectOptions: $connectOptions)');
-    _connectOptions = connectOptions;
+    _connectOptionsOverride = connectOptions;
+  }
+
+  Future<void> _init() {
+    return _callInitLock.synchronized(() async {
+      _logger.v(() => '[_init] no args');
+
+      if (_initialized) return;
+      _logger.d(() => '[_init] initializing');
+
+      _observeEvents();
+      _observeState();
+      _observeReconnectEvents();
+      _observeUserId();
+
+      _logger.v(() => '[_init] initialized');
+      _initialized = true;
+    });
   }
 
   void _observeState() {
     _subscriptions.add(
       _idState,
-      _stateManager.callStateStream
-          .listen((state) async => _onStateChanged(state)),
+      _stateManager.callStateStream.listen(
+        (state) async => _onStateChanged(state),
+      ),
     );
   }
 
   void _observeEvents() {
+    _subscriptions.cancel(_idCoordEvents);
     _subscriptions.add(
       _idCoordEvents,
       _coordinatorClient.events.on<CoordinatorCallEvent>((event) async {
-        _coordinatorEvents.emit(event);
         event.mapToCallEvent(state.value).emitIfNotNull(_callEvents);
         await _onCoordinatorEvent(event);
       }),
     );
   }
 
+  void _observeReconnectEvents() {
+    _subscriptions.add(
+      _idReconnect,
+      InternetConnection.createInstance().onStatusChange.listen(
+        (status) {
+          if (status == InternetStatus.disconnected) {
+            _logger.d(() => '[observeReconnectEvents] network disconnected');
+            _awaitNetworkAvailableFuture = _awaitNetworkAvailable();
+            _reconnect(SfuReconnectionStrategy.fast);
+          }
+        },
+      ),
+    );
+  }
+
   void _observeUserId() {
     _subscriptions.add(
       _idUserId,
-      _currentUserIdUpdates.listen((userId) {
-        if (userId.isEmpty) return;
+      _streamVideo.state.user
+          .asStream()
+          .map((u) => u.id)
+          .distinct()
+          .listen((userId) {
         final stateUserId = _stateManager.callState.currentUserId;
         if (userId == stateUserId) {
           _logger.v(() => '[observeUserId] rejected (same userId): $userId');
           return;
         }
+
         _logger.d(() => '[observeUserId] userId: $userId');
-        _stateManager.lifecycleUpdateUserId(SetUserId(userId));
+        _stateManager.lifecycleUpdateUserId(userId);
       }),
     );
   }
 
   Future<void> _onStateChanged(CallState state) async {
     final status = state.status;
-    _logger.v(() => '[onStateChanged] status: $status');
+
+    if (status is CallStatusReconnectionFailed) {
+      await leave(reason: DisconnectReason.reconnectionFailed());
+    }
+
     if (status is CallStatusDisconnected) {
       await _clear('status-disconnected');
     }
+
     _sessionFactory.sdpEditor.opusDtxEnabled =
         state.settings.audio.opusDtxEnabled;
     _sessionFactory.sdpEditor.opusRedEnabled =
@@ -336,141 +366,473 @@ class Call {
   Future<void> _onCoordinatorEvent(CoordinatorCallEvent event) async {
     // Return if the event is not for this call.
     if (event.callCid != state.value.callCid) return;
-    _logger.v(() => '[onCoordinatorEvent] event.type: ${event.runtimeType}');
-    _logger.v(() => '[onCoordinatorEvent] calStatus: ${state.value.status}');
+    _logger.v(
+      () =>
+          '[onCoordinatorEvent] event.type: ${event.runtimeType}, calStatus: ${state.value.status}',
+    );
 
-    if (event is CoordinatorCallPermissionRequestEvent) {
-      // Notify the client about the permission request.
-      return onPermissionRequest?.call(event);
-    }
+    switch (event) {
+      case CoordinatorCallPermissionRequestEvent _:
+        // Notify the client about the permission request.
+        return onPermissionRequest?.call(event);
+      case CoordinatorCallRejectedEvent _:
+        return _stateManager.coordinatorCallRejected(event);
+      case CoordinatorCallAcceptedEvent _:
+        return _stateManager.coordinatorCallAccepted(event);
+      case CoordinatorCallEndedEvent _:
+        return _stateManager.coordinatorCallEnded(event);
+      case CoordinatorCallPermissionsUpdatedEvent _:
+        return _stateManager.coordinatorCallPermissionsUpdated(event);
+      case CoordinatorCallRecordingStartedEvent _:
+        return _stateManager.coordinatorCallRecordingStarted(event);
+      case CoordinatorCallRecordingStoppedEvent _:
+        return _stateManager.coordinatorCallRecordingStopped(event);
+      case CoordinatorCallRecordingFailedEvent _:
+        return _stateManager.coordinatorCallRecordingFailed(event);
+      case CoordinatorCallTranscriptionStartedEvent _:
+        return _stateManager.coordinatorCallTranscriptionStarted(event);
+      case CoordinatorCallTranscriptionStoppedEvent _:
+        return _stateManager.coordinatorCallTranscriptionStopped(event);
+      case CoordinatorCallTranscriptionFailedEvent _:
+        return _stateManager.coordinatorCallTranscriptionFailed(event);
+      case CoordinatorCallBroadcastingStartedEvent _:
+        return _stateManager.coordinatorCallBroadcastingStarted(event);
+      case CoordinatorCallBroadcastingStoppedEvent _:
+        return _stateManager.coordinatorCallBroadcastingStopped(event);
+      case CoordinatorCallBroadcastingFailedEvent _:
+        return _stateManager.coordinatorCallBroadcastingFailed(event);
+      case CoordinatorCallRingingEvent _:
+        return _stateManager.callMetadataChanged(event.metadata);
+      case CoordinatorCallMissedEvent _:
+        return _stateManager.callMetadataChanged(event.metadata);
+      case CoordinatorCallSessionEndedEvent _:
+        return _stateManager.callMetadataChanged(event.metadata);
+      case CoordinatorCallSessionStartedEvent _:
+        return _stateManager.callMetadataChanged(event.metadata);
+      case CoordinatorCallUpdatedEvent _:
+        return _stateManager.callMetadataChanged(event.metadata);
+      case CoordinatorCallReactionEvent _:
+        _reactionTimers.add(
+          Timer(_preferences.reactionAutoDismissTime, () {
+            _stateManager.resetCallReaction(event.user.id);
+          }),
+        );
+        return _stateManager.coordinatorCallReaction(event);
+      case CoordinatorCallSessionParticipantCountUpdatedEvent _:
+        if (state.value.status.isConnected || state.value.status.isJoined) {
+          return;
+        }
 
-    if (event is CoordinatorCallRejectedEvent) {
-      return _stateManager.coordinatorCallRejected(event);
-    } else if (event is CoordinatorCallAcceptedEvent) {
-      return _stateManager.coordinatorCallAccepted(event);
-    } else if (event is CoordinatorCallEndedEvent) {
-      return _stateManager.coordinatorCallEnded(event);
-    } else if (event is CoordinatorCallPermissionsUpdatedEvent) {
-      return _stateManager.coordinatorCallPermissionsUpdated(event);
-    } else if (event is CoordinatorCallRecordingStartedEvent) {
-      return _stateManager.coordinatorCallRecordingStarted(event);
-    } else if (event is CoordinatorCallRecordingStoppedEvent) {
-      return _stateManager.coordinatorCallRecordingStopped(event);
-    } else if (event is CoordinatorCallBroadcastingStartedEvent) {
-      return _stateManager.coordinatorCallBroadcastingStarted(event);
-    } else if (event is CoordinatorCallBroadcastingStoppedEvent) {
-      return _stateManager.coordinatorCallBroadcastingStopped(event);
-    } else if (event is CoordinatorCallReactionEvent) {
-      return _stateManager.coordinatorCallReaction(event);
+        return _stateManager.setParticipantsCount(
+          totalCount:
+              event.participantsCountByRole.values.fold(0, (a, b) => a + b),
+          anonymousCount: event.anonymousParticipantCount,
+        );
+      default:
+        break;
     }
   }
 
+  /// Accepts the incoming call.
   Future<Result<None>> accept() async {
     final state = this.state.value;
+    _logger.i(() => '[accept] state: $state');
+
     final status = state.status;
     if (status is! CallStatusIncoming || status.acceptedByMe) {
-      _logger.w(() => '[acceptCall] rejected (invalid status): $status');
+      _logger.w(() => '[accept] rejected (invalid status): $status');
       return Result.error('invalid status: $status');
     }
+
+    final outgoingCall = _streamVideo.state.outgoingCall.valueOrNull;
+    if (outgoingCall != null && outgoingCall.callCid != callCid) {
+      _logger.i(() => '[accept] canceling outgoing call: $outgoingCall');
+      await outgoingCall.reject(reason: CallRejectReason.cancel());
+
+      await _streamVideo.state.setOutgoingCall(null);
+    }
+
+    final activeCall = _streamVideo.state.activeCall.valueOrNull;
+    if (activeCall != null && activeCall.callCid != callCid) {
+      _logger.i(() => '[accept] canceling another active call: $activeCall');
+      await activeCall.reject(reason: CallRejectReason.cancel());
+
+      await _streamVideo.state.setActiveCall(null);
+    }
+
     final result = await _coordinatorClient.acceptCall(cid: state.callCid);
     if (result is Success<None>) {
-      _stateManager.lifecycleCallAccepted(const CallAccepted());
+      _stateManager.lifecycleCallAccepted();
     }
+
     return result;
   }
 
-  Future<Result<None>> reject() async {
+  /// Rejects the incoming call.
+  Future<Result<None>> reject({CallRejectReason? reason}) async {
     final state = this.state.value;
-    final status = state.status;
-    if ((status is! CallStatusIncoming || status.acceptedByMe) &&
-        status is! CallStatusOutgoing) {
-      _logger.w(() => '[rejectCall] rejected (invalid status): $status');
-      return Result.error('invalid status: $status');
-    }
-    final result = await _coordinatorClient.rejectCall(cid: state.callCid);
-    if (result is Success<None>) {
-      _stateManager.lifecycleCallRejected(const CallRejected());
-    }
+    _logger.i(() => '[reject] state: $state');
+
+    final result = await _coordinatorClient.rejectCall(
+      cid: state.callCid,
+      reason: reason?.value,
+    );
+
+    // Always leave the call after rejecting it.
+    await leave(
+      reason: result is Success<None>
+          ? DisconnectReason.rejected(
+              byUserId: state.currentUserId,
+              reason: reason,
+            )
+          : null,
+    );
+
     return result;
   }
 
+  /// Ends the call for all participants.
   Future<Result<None>> end() async {
-    _logger.d(() => '[end] no args');
     final state = this.state.value;
     _logger.d(() => '[end] status: ${state.status}');
+
     if (state.status is! CallStatusActive) {
       _logger.w(() => '[end] rejected (invalid status): ${state.status}');
       return Result.error('invalid status: ${state.status}');
     }
-    _status.value = _ConnectionStatus.disconnected;
+
+    _session?.leave(reason: 'user is ending the call');
     await _clear('end');
+
     final result = await _permissionsManager.endCall();
-    _stateManager.lifecycleCallEnded(const CallEnded());
+    _stateManager.lifecycleCallEnded();
+
     _logger.v(() => '[end] completed: $result');
     return result;
   }
 
-  @Deprecated('Lobby view no longer needs joining to coordinator')
-  Future<Result<None>> joinLobby() async {
-    _logger.d(() => '[joinLobby] no args');
-    _stateManager.lifecycleCallJoining(const CallJoining());
-    final joinedResult = await _joinIfNeeded();
-    if (joinedResult is Success<CallCredentials>) {
-      _logger.v(() => '[joinLobby] completed');
-      return const Result.success(none);
-    } else {
-      final failedResult = joinedResult as Failure;
-      _logger.e(() => '[joinLobby] failed: $failedResult');
-      final error = failedResult.error;
-      _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
-      return failedResult;
-    }
-  }
+  /// Joins the call.
+  ///
+  /// - [connectOptions]: optional initial call configuration
+  Future<Result<None>> join({
+    CallConnectOptions? connectOptions,
+  }) async {
+    await _init();
 
-  Future<Result<None>> join() async {
-    _logger.i(() => '[join] status: ${_status.value}');
-    if (_status.value == _ConnectionStatus.connected) {
+    if (state.value.status is CallStatusConnected) {
       _logger.w(() => '[join] rejected (connected)');
       return const Result.success(none);
     }
 
-    if (_getActiveCallCid() == callCid) {
+    if (_streamVideo.state.activeCall.valueOrNull?.callCid == callCid) {
       _logger.w(
         () => '[join] rejected (a call with the same cid is in progress)',
       );
+
       return Result.error('a call with the same cid is in progress');
     }
 
-    if (_status.value == _ConnectionStatus.connecting) {
+    if (state.value.status is CallStatusConnecting) {
       _logger.v(() => '[join] await "connecting" change');
-      final status = await _status.firstWhere(
-        (it) => it != _ConnectionStatus.connecting,
+
+      final status = await state.firstWhere(
+        (it) => it.status is CallStatusConnected,
         timeLimit: _preferences.connectTimeout,
       );
 
-      if (status == _ConnectionStatus.connected) {
+      if (status is! CallStatusConnected) {
         return const Result.success(none);
       } else {
+        _logger.e(() => '[join] original "connect" failed');
         return Result.error('original "connect" failed');
       }
     }
 
-    await _setActiveCall(this);
-    _status.value = _ConnectionStatus.connecting;
-
-    final result = await _connect()
+    await _streamVideo.state.setActiveCall(this);
+    final result = await _join(connectOptions: connectOptions)
         .asCancelable()
         .storeIn(_idConnect, _cancelables)
         .valueOrDefault(Result.error('connect cancelled'));
 
     if (result.isSuccess) {
       _logger.v(() => '[join] finished: $result');
-      _status.value = _ConnectionStatus.connected;
     } else {
       _logger.e(() => '[join] failed: $result');
       await leave();
     }
+
     return result;
+  }
+
+  Future<Result<None>> _join({
+    CallConnectOptions? connectOptions,
+  }) async {
+    if (_callJoinLock.locked) {
+      _logger.w(() => '[join] rejected (already joining)');
+      return Result.error('already joining');
+    }
+
+    return _callJoinLock.synchronized(() async {
+      _logger.d(() => '[join] options: $_connectOptions');
+
+      final validation =
+          await _stateManager.validateUserId(_streamVideo.currentUser.id);
+
+      if (validation.isFailure) {
+        _logger.w(() => '[join] rejected (validation): $validation');
+        return validation;
+      }
+
+      _logger.v(() => '[join] validated');
+
+      final performingMigration =
+          _reconnectStrategy == SfuReconnectionStrategy.migrate;
+      final performingRejoin =
+          _reconnectStrategy == SfuReconnectionStrategy.rejoin;
+      final performingFastReconnect =
+          _reconnectStrategy == SfuReconnectionStrategy.fast;
+
+      final result = await _awaitIfNeeded();
+      if (result.isFailure) {
+        _logger.e(() => '[join] waiting failed: $result');
+
+        await reject(reason: CallRejectReason.timeout());
+        _stateManager.lifecycleCallTimeout();
+
+        return result;
+      }
+
+      _stateManager.lifecycleCallConnecting(
+        attempt: _reconnectAttempts,
+        strategy: _reconnectStrategy,
+      );
+
+      final joinedResult = await _joinIfNeeded(
+        connectOptions: connectOptions,
+      );
+
+      if (joinedResult is! Success<CallCredentials>) {
+        _logger.e(() => '[join] coordinator joining failed: $joinedResult');
+
+        final error = (joinedResult as Failure).error;
+        _stateManager.lifecycleCallConnectFailed(error: error);
+        return result;
+      }
+
+      _credentials = joinedResult.data;
+
+      _previousSession = _session;
+
+      final isWsHealthy = _previousSession?.sfuWS.isConnected ?? false;
+
+      final reconnectDetails =
+          _reconnectStrategy == SfuReconnectionStrategy.unspecified
+              ? null
+              : _previousSession?.getReconnectDetails(_reconnectStrategy);
+
+      if (performingRejoin || performingMigration || !isWsHealthy) {
+        _logger.v(
+          () =>
+              '[join] creating new sfu session (rejoin: $performingRejoin, migration: $performingMigration, wsHealthy: $isWsHealthy)',
+        );
+
+        _session = await _sessionFactory.makeCallSession(
+          // a new session_id is necessary for the REJOIN strategy.
+          // we use the previous session_id if available
+          sessionId: performingRejoin ? null : _previousSession?.sessionId,
+          credentials: _credentials!,
+          stateManager: _stateManager,
+          dynascaleManager: dynascaleManager,
+          onPeerConnectionFailure: (pc) async {
+            if (state.value.status is! CallStatusReconnecting) {
+              await pc.pc.restartIce().onError((_, __) {
+                _reconnect(SfuReconnectionStrategy.rejoin);
+              });
+            }
+          },
+        );
+
+        dynascaleManager.init(
+          sfuClient: _session!.sfuClient,
+          sessionId: _session!.sessionId,
+        );
+      } else {
+        _logger.v(
+          () =>
+              '[join] reusing previous sfu session (rejoin: $performingRejoin, migration: $performingMigration, wsHealthy: $isWsHealthy)',
+        );
+
+        _session = _previousSession;
+      }
+
+      if (_session?.sessionSeq != _previousSession?.sessionSeq) {
+        _logger.d(() => '[join] starting sfu session');
+
+        final sessionResult = await _startSession(
+          _session!,
+          reconnectDetails: reconnectDetails,
+        );
+
+        if (sessionResult is! Success<None>) {
+          _logger.e(() => '[join] sfu session start failed: $sessionResult');
+
+          final error = (sessionResult as Failure).error;
+          _stateManager.lifecycleCallConnectFailed(error: error);
+          return sessionResult;
+        }
+      }
+
+      if (performingFastReconnect && isWsHealthy) {
+        _logger.d(() => '[join] fast reconnecting');
+
+        final result = await _session?.fastReconnect();
+
+        result?.fold(
+          success: (success) {
+            _logger.v(() => '[join] fast reconnecting success');
+            _fastReconnectDeadline = success.data.fastReconnectDeadline;
+          },
+          failure: (failure) {
+            _logger.e(() => '[join] fast reconnecting failed: $failure');
+            return failure;
+          },
+        );
+      }
+
+      if (performingRejoin) {
+        _logger.v(() => '[join] leaving previous session');
+        _previousSession?.leave(
+          reason:
+              'Closing previous WS after reconnect with strategy: ${_reconnectStrategy.name}',
+        );
+        await _previousSession?.dispose();
+      } else if (!isWsHealthy) {
+        _logger.v(() => '[join] closing unhealthy WS');
+        await _previousSession?.close(
+          StreamWebSocketCloseCode.disposeOldSocket,
+          closeReason: 'Closing unhealthy WS after reconnect',
+        );
+      }
+
+      // For migration we have to wait for confirmation before we can complete the flow
+      if (_reconnectStrategy != SfuReconnectionStrategy.migrate) {
+        _previousSession = null;
+        _stateManager.lifecycleCallConnected();
+      }
+
+      _logger.v(() => '[join] apllying connect options');
+      await _applyConnectOptions();
+
+      _logger.v(() => '[join] completed');
+      return const Result.success(none);
+    });
+  }
+
+  Future<Result<CallCredentials>> _joinIfNeeded({
+    CallConnectOptions? connectOptions,
+  }) async {
+    _logger.d(
+      () => '[joinIfNeeded] options: $connectOptions, '
+          'reconnectionStrategy: $_reconnectStrategy',
+    );
+
+    final credentials = _credentials;
+    final prevState = _stateManager.callState;
+
+    if (credentials == null ||
+        _reconnectStrategy == SfuReconnectionStrategy.rejoin ||
+        _reconnectStrategy == SfuReconnectionStrategy.migrate) {
+      _logger.w(() => '[joinIfNeeded] joining');
+
+      final joinedResult = await _performJoinCallRequest(
+        create: true,
+        connectOptions: connectOptions,
+        migratingFrom: _reconnectStrategy == SfuReconnectionStrategy.migrate
+            ? _session?.config.sfuName
+            : null,
+      );
+
+      return joinedResult.fold(
+        success: (success) {
+          _credentials = success.data.credentials;
+          _session?.rtcManager
+              ?.updateReportingInterval(success.data.reportingIntervalMs);
+
+          return Result.success(success.data.credentials);
+        },
+        failure: (failure) {
+          _logger.e(() => '[joinIfNeeded] failed: $failure');
+          _stateManager.state = prevState;
+          return failure;
+        },
+      );
+    }
+
+    _logger.w(() => '[joinIfNeeded] rejected (already joined): $_credentials');
+    return Result.success(credentials);
+  }
+
+  Future<Result<CallJoinedData>> _performJoinCallRequest({
+    bool create = false,
+    bool video = false,
+    String? migratingFrom,
+    CallConnectOptions? connectOptions,
+  }) async {
+    _logger.d(() => '[joinCall] cid: $callCid, migratingFrom: $migratingFrom');
+
+    final joinResult = await _coordinatorClient.joinCall(
+      callCid: callCid,
+      create: create,
+      migratingFrom: migratingFrom,
+      video: video,
+    );
+
+    if (joinResult is! Success<CoordinatorJoined>) {
+      _logger.e(() => '[joinCall] join failed: $joinResult');
+      return joinResult as Failure;
+    }
+
+    final receivedOrCreated = CallReceivedOrCreatedData(
+      wasCreated: joinResult.data.wasCreated,
+      data: CallCreatedData(
+        callCid: callCid,
+        metadata: joinResult.data.metadata,
+      ),
+    );
+
+    // Apply call settings to connect options only when not reconnecting.
+    if (_reconnectStrategy == SfuReconnectionStrategy.unspecified) {
+      await _applyCallSettingsToConnectOptions(
+        receivedOrCreated.data.metadata.settings,
+      );
+
+      if (connectOptions != null) {
+        _connectOptions = _connectOptions.merge(connectOptions);
+      }
+
+      if (_connectOptionsOverride != null) {
+        _connectOptions = _connectOptions.merge(_connectOptionsOverride!);
+        _connectOptionsOverride = null;
+      }
+    }
+
+    _logger.v(() => '[joinCall] joinedMetadata: ${joinResult.data.metadata}');
+
+    final joined = CallJoinedData(
+      callCid: callCid,
+      wasCreated: joinResult.data.wasCreated,
+      metadata: joinResult.data.metadata,
+      credentials: joinResult.data.credentials,
+      reportingIntervalMs: joinResult.data.reportingIntervalMs,
+    );
+
+    _stateManager.lifecycleCallJoined(
+      joined,
+      callConnectOptions: connectOptions,
+    );
+
+    _logger.v(() => '[joinCall] completed: $joined');
+    return Result.success(joined);
   }
 
   Future<Result<CallMetadata>> update({
@@ -483,6 +845,7 @@ class Call {
     StreamTranscriptionSettings? transcription,
     StreamBackstageSettings? backstage,
     StreamGeofencingSettings? geofencing,
+    StreamLimitsSettings? limits,
   }) {
     return _coordinatorClient.updateCall(
       callCid: callCid,
@@ -495,110 +858,30 @@ class Call {
       transcription: transcription,
       backstage: backstage,
       geofencing: geofencing,
+      limits: limits,
     );
-  }
-
-  Future<Result<None>> _connect() async {
-    _logger.d(() => '[join] options: $_connectOptions');
-    final validation = await _stateManager.validateUserId(_getCurrentUserId);
-    if (validation.isFailure) {
-      _logger.w(() => '[join] rejected (validation): $validation');
-      return validation;
-    }
-    _logger.v(() => '[join] validated');
-
-    final state = this.state.value;
-    final status = state.status;
-    if (!status.isConnectable) {
-      _logger.w(() => '[join] rejected (not Connectable): $status');
-      return Result.error('invalid status: $status');
-    }
-    _observeState();
-    _observeEvents();
-    _observeUserId();
-    final result = await _awaitIfNeeded();
-    if (result.isFailure) {
-      _logger.e(() => '[join] waiting failed: $result');
-
-      await reject();
-      _stateManager.lifecycleCallTimeout(const CallTimeout());
-
-      return result;
-    }
-
-    _stateManager
-        .lifecycleCallConnectingAction(CallConnecting(_reconnectAttempt));
-    _logger.v(() => '[join] joining to coordinator');
-    final joinedResult = await _joinIfNeeded();
-    if (joinedResult is! Success<CallCredentials>) {
-      _logger.e(() => '[join] coordinator joining failed: $joinedResult');
-      final error = (joinedResult as Failure).error;
-      _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
-      return result;
-    }
-
-    _logger.v(() => '[join] starting sfu session');
-    final sessionResult = await _startSession(joinedResult.data);
-
-    if (sessionResult is! Success<None>) {
-      _logger.w(() => '[join] sfu session start failed: $sessionResult');
-      final error = (sessionResult as Failure).error;
-      _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
-      return sessionResult;
-    }
-
-    _logger.v(() => '[join] started session');
-    _stateManager.lifecycleCallConnected(const CallConnected());
-
-    await _applyConnectOptions();
-
-    _logger.v(() => '[join] completed');
-    return const Result.success(none);
-  }
-
-  Future<Result<CallCredentials>> _joinIfNeeded() async {
-    final creds = _credentials;
-    if (creds != null) {
-      _logger.w(() => '[joinIfNeeded] rejected (already joined): $creds');
-      return Result.success(creds);
-    }
-    _logger.d(() => '[joinIfNeeded] no args');
-    final joinedResult = await _joinCall(create: true);
-    if (joinedResult is Success<CallJoinedData>) {
-      _logger.v(() => '[joinIfNeeded] completed');
-      _credentials = joinedResult.data.credentials;
-      _session?.rtcManager
-          ?.updateReportingInterval(joinedResult.data.reportingIntervalMs);
-      return Result.success(joinedResult.data.credentials);
-    }
-    _logger.e(() => '[joinIfNeeded] failed: $joinedResult');
-    return joinedResult as Failure;
   }
 
   Future<Result<None>> _startSession(
-    CallCredentials credentials, [
-    String? sessionId,
-  ]) async {
+    CallSession session, {
+    ReconnectDetails? reconnectDetails,
+  }) async {
     _logger.d(
-      () => '[startSession] credentials: $credentials, sessionId: $sessionId',
+      () => '[startSession] sessionId: $session',
     );
-    _credentials = null;
-    final session = await _sessionFactory.makeCallSession(
-      sessionId: sessionId,
-      credentials: credentials,
-      stateManager: _stateManager,
-      onFullReconnectNeeded: () => _fullReconnect(null),
-    );
-    _logger.v(() => '[startSession] session created: $session');
+
     _session = session;
+
+    _subscriptions.cancel(_idSessionEvents);
+    _subscriptions.cancel(_idSessionStats);
+
     _subscriptions.add(
       _idSessionEvents,
       session.events.listen((event) {
-        _logger.log(
-          event.logPriority,
-          () => '[listenSfuEvent] event.type: ${event.runtimeType}',
-        );
-        _events.emit(event);
+        // _logger.log(
+        //   event.logPriority,
+        //   () => '[listenSfuEvent] event.type: ${event.runtimeType}',
+        // );
         event.mapToCallEvent(state.value).emitIfNotNull(_callEvents);
         _onSfuEvent(event);
       }),
@@ -607,9 +890,8 @@ class Call {
     _subscriptions.add(
       _idSessionStats,
       session.stats.listen((stats) {
-        _logger.v(() => '[listenRtcStats] stats: $stats');
         _stats.emit(stats);
-        processStats(stats);
+        _processStats(stats);
       }),
     );
 
@@ -617,21 +899,34 @@ class Call {
     localStats = localStats.copyWith(
       sfu: session.config.sfuUrl,
       sdkVersion: streamVideoVersion,
-      webRtcVersion:
-          CurrentPlatform.isAndroid ? androidWebRTCVersion : iosWebRTCVersion,
+      webRtcVersion: switch (CurrentPlatform.type) {
+        PlatformType.android => androidWebRTCVersion,
+        PlatformType.ios => iosWebRTCVersion,
+        _ => null,
+      },
     );
 
     _stateManager.lifecycleCallSessionStart(
-      CallSessionStart(session.sessionId),
+      sessionId: session.sessionId,
       localStats: localStats,
     );
 
-    final result = await session.start();
-    _logger.v(() => '[startSession] completed: $result');
-    return result;
+    final result = await session.start(reconnectDetails: reconnectDetails);
+
+    return result.fold(
+      success: (success) {
+        _logger.v(() => '[startSession] success: $success');
+        _fastReconnectDeadline = success.data.fastReconnectDeadline;
+        return const Result.success(none);
+      },
+      failure: (failure) {
+        _logger.e(() => '[startSession] failed: $failure');
+        return failure;
+      },
+    );
   }
 
-  void processStats(CallStats stats) {
+  void _processStats(CallStats stats) {
     var publisherStats =
         state.value.publisherStats ?? PeerConnectionStats.empty();
     var subscriberStats =
@@ -723,163 +1018,197 @@ class Call {
     );
   }
 
-  Future<Result<None>> _stopSession() async {
-    _subscriptions.cancel(_idSessionEvents);
-    _subscriptions.cancel(_idSessionStats);
-
-    await _session?.dispose();
-    _session = null;
-    _credentials = null;
-
-    return const Result.success(none);
-  }
-
   Future<void> _onSfuEvent(SfuEvent sfuEvent) async {
+    if (sfuEvent is SfuParticipantLeftEvent) {
+      final callParticipants = [...state.value.callParticipants]..removeWhere(
+          (participant) =>
+              participant.userId == sfuEvent.participant.userId &&
+              participant.sessionId == sfuEvent.participant.sessionId,
+        );
+
+      if (callParticipants.length == 1 &&
+          callParticipants.first.userId == _streamVideo.currentUser.id &&
+          state.value.isRingingFlow &&
+          _stateManager.callPreferences.dropIfAloneInRingingFlow) {
+        await leave();
+      }
+    } else if (sfuEvent is SfuHealthCheckResponseEvent) {
+      _stateManager.setParticipantsCount(
+        totalCount: sfuEvent.participantCount.total,
+        anonymousCount: sfuEvent.participantCount.anonymous,
+      );
+    }
+
     if (sfuEvent is SfuSocketDisconnected) {
-      await _reconnect(sfuEvent.reason);
+      _logger.w(() => '[onSfuEvent] socket disconnected');
     } else if (sfuEvent is SfuSocketFailed) {
-      await _reconnect(sfuEvent.error);
+      _logger.w(() => '[onSfuEvent] socket failed');
     } else if (sfuEvent is SfuGoAwayEvent) {
-      await _switchSfu(sfuEvent.goAwayReason);
+      _logger.w(() => '[onSfuEvent] go away, migrating sfu');
+      await _reconnect(SfuReconnectionStrategy.migrate);
+    }
+    // error event
+    else if (sfuEvent is SfuErrorEvent) {
+      switch (sfuEvent.error.reconnectStrategy) {
+        case SfuReconnectionStrategy.rejoin:
+        case SfuReconnectionStrategy.fast:
+        case SfuReconnectionStrategy.migrate:
+          _logger.w(
+            () =>
+                '[onSfuEvent] SFU error: ${sfuEvent.error}, reconnect strategy: ${sfuEvent.error.reconnectStrategy}',
+          );
+          await _reconnect(sfuEvent.error.reconnectStrategy);
+          break;
+        case SfuReconnectionStrategy.disconnect:
+          _logger.w(
+            () => '[onSfuEvent] SFU error: ${sfuEvent.error}, leaving call',
+          );
+          await leave();
+          break;
+        case SfuReconnectionStrategy.unspecified:
+          _logger.w(() => '[onSfuEvent] SFU error: ${sfuEvent.error}');
+          break;
+      }
     }
   }
 
-  Future<void> _reconnect(dynamic reason) async {
-    //one reconnect attempt at a time
-    if (_status.value == _ConnectionStatus.reconnecting) return;
-    _status.value = _ConnectionStatus.reconnecting;
+  Future<void> _reconnect(SfuReconnectionStrategy strategy) async {
+    if (_callReconnectLock.locked) {
+      _logger.w(
+        () =>
+            '[reconnect] rejected $strategy (reconnect in progress: $_reconnectStrategy)',
+      );
+      return;
+    }
 
-    _stateManager.lifecycleCallConnectingAction(CallConnecting.fastReconnect());
+    await _callReconnectLock.synchronized(() async {
+      _reconnectStrategy = strategy;
 
-    var tryFastReconnect = true;
-    _logger.w(() => '[reconnect] starting timer');
-    final timer = Timer(_fastReconnectTimeout, () {
-      _logger.w(() => '[reconnect] too late for fast reconnect');
-      tryFastReconnect = false;
+      do {
+        if (strategy != SfuReconnectionStrategy.migrate) {
+          _reconnectAttempts++;
+        }
+
+        _stateManager.lifecycleCallConnecting(
+          attempt: _reconnectAttempts,
+          strategy: strategy,
+        );
+
+        _logger.d(
+          () => '[reconnect] strategy: $strategy, attempt: $_reconnectAttempts',
+        );
+
+        try {
+          final networkStatus = await _awaitNetworkAvailableFuture;
+          _logger.v(() => '[reconnect] network: $networkStatus');
+
+          if (networkStatus == InternetStatus.disconnected) {
+            _logger.w(() => '[reconnect] reconnection timeout');
+            _stateManager.lifecycleCallReconnectingFailed();
+            return;
+          }
+
+          switch (_reconnectStrategy) {
+            case SfuReconnectionStrategy.unspecified:
+            case SfuReconnectionStrategy.disconnect:
+              _logger
+                  .v(() => '[reconnect]  No-op strategy $_reconnectStrategy');
+            case SfuReconnectionStrategy.fast:
+              _logger.v(() => '[reconnect] fast reconnect');
+              await _reconnectFast();
+            case SfuReconnectionStrategy.rejoin:
+              _logger.v(() => '[reconnect] rejoin');
+              await _reconnectRejoin();
+            case SfuReconnectionStrategy.migrate:
+              _logger.v(() => '[reconnect] migrate');
+              await _reconnectMigrate();
+          }
+        } catch (error) {
+          switch (error) {
+            case OpenApiError() when error.apiError.unrecoverable ?? false:
+            case APIError() when error.unrecoverable ?? false:
+              _logger.w(() => '[reconnect] unrecoverable error');
+              _stateManager.lifecycleCallReconnectingFailed();
+              return;
+            default:
+              _logger.w(
+                () =>
+                    '[reconnect] reconnect failed, error: $error, strategy: $_reconnectStrategy, attempt: $_reconnectAttempts. Attempting with Rejoin strategy',
+              );
+
+              await Future<void>.delayed(
+                _retryPolicy.backoff(_reconnectAttempts),
+              );
+              _reconnectStrategy = SfuReconnectionStrategy.rejoin;
+          }
+        }
+      } while (state.value.status is! CallStatusConnected &&
+          state.value.status is! CallStatusDisconnected &&
+          state.value.status is! CallStatusReconnectionFailed);
+    });
+  }
+
+  Future<void> _reconnectFast() async {
+    _reconnectStrategy = SfuReconnectionStrategy.fast;
+    await _join();
+  }
+
+  Future<void> _reconnectRejoin() async {
+    _reconnectStrategy = SfuReconnectionStrategy.rejoin;
+    await _join();
+  }
+
+  Future<void> _reconnectMigrate() async {
+    _reconnectStrategy = SfuReconnectionStrategy.migrate;
+    await _join();
+    final result = await _session?.waitForMigrationComplete();
+
+    await _previousSession?.close(StreamWebSocketCloseCode.disposeOldSocket);
+
+    result?.fold(
+      success: (_) {
+        _stateManager.lifecycleCallConnected();
+      },
+      failure: (_) {
+        _reconnectStrategy = SfuReconnectionStrategy.rejoin;
+      },
+    );
+  }
+
+  Future<InternetStatus> _awaitNetworkAvailable() async {
+    _logger.v(() => '[awaitNetworkAwailable] starting timer');
+    final fastReconnectTimer = Timer(_fastReconnectDeadline, () {
+      _logger.w(() => '[awaitNetworkAwailable] too late for fast reconnect');
+      if (_reconnectStrategy == SfuReconnectionStrategy.fast) {
+        _reconnectStrategy = SfuReconnectionStrategy.rejoin;
+      }
     });
 
-    final connectionStatus = await InternetConnectionChecker.createInstance(
+    final connectionStatus = await InternetConnection.createInstance(
       checkInterval: const Duration(seconds: 1),
     )
         .onStatusChange
-        .firstWhere((status) => status == InternetConnectionStatus.connected)
+        .firstWhere((status) => status == InternetStatus.connected)
         .timeout(
-      _reconnectTimeout,
-      onTimeout: () {
-        _logger.w(() => '[reconnect] timeout');
+          _retryPolicy.config.callRejoinTimeout,
+          onTimeout: () {
+            _logger.w(() => '[awaitNetworkAwailable] timeout');
+            return InternetStatus.disconnected;
+          },
+        )
+        .asCancelable()
+        .storeIn(_idFastReconnectTimeout, _cancelables)
+        .valueOrDefault(InternetStatus.disconnected);
 
-        return InternetConnectionStatus.disconnected;
-      },
-    );
-
-    //no internet connection after _reconnectTimeout, leave the call
-    if (connectionStatus != InternetConnectionStatus.connected) {
-      timer.cancel();
-      await leave();
-      return;
-    }
-
-    if (_session != null && tryFastReconnect) {
-      _logger.w(() => '[reconnect] trying fast reconnect');
-      timer.cancel();
-
-      final result = await _session!.fastReconnect();
-      if (!result.isSuccess) {
-        _logger.w(
-          () =>
-              '[reconnect] fast reconnect failed, doing full reconnect: ${result.fold(success: (success) => '', failure: (failure) => failure.error.message)}',
-        );
-        await _fullReconnect(reason);
-      } else {
-        _logger.w(
-          () => '[reconnect] fast reconnect successful',
-        );
-
-        _stateManager.lifecycleCallConnected(const CallConnected());
-        _status.value = _ConnectionStatus.connected;
-      }
-    } else {
-      _logger.w(() => '[reconnect] doing full reconnect');
-      await _fullReconnect(reason);
-    }
-  }
-
-  Future<void> _fullReconnect(dynamic reason) async {
-    if (_status.value == _ConnectionStatus.disconnected) {
-      _logger.w(() => '[fullReconnect] rejected (disconnected)');
-      return;
-    }
-    if (_status.value == _ConnectionStatus.connecting) {
-      _logger.w(() => '[fullReconnect] rejected (connecting)');
-      return;
-    }
-    _status.value = _ConnectionStatus.connecting;
-    _logger.w(() => '[fullReconnect] >>>>>>>>>>>>>>>> reason: $reason');
-    _subscriptions.cancel(_idSessionEvents);
-    await _session?.dispose();
-    _session = null;
-
-    Result<None> result;
-    final startTime = DateTime.now().toUtc().millisecondsSinceEpoch;
-    while (true) {
-      _reconnectAttempt++;
-      _stateManager
-          .lifecycleCallConnectingAction(CallConnecting(_reconnectAttempt));
-      if (_status.value == _ConnectionStatus.disconnected) {
-        _logger.w(
-          () =>
-              '[fullReconnect] attempt($_reconnectAttempt) rejected (disconnected)',
-        );
-        _logger.v(() => '[fullReconnect] <<<<<<<<<<<<<<< rejected');
-        return;
-      }
-      final elapsed = DateTime.now().toUtc().millisecondsSinceEpoch - startTime;
-      final retryPolicy = _retryPolicy;
-      if (elapsed > retryPolicy.config.callRejoinTimeout.inMilliseconds) {
-        _logger.w(() => '[fullReconnect] timeout exceed');
-        result = Result.error('was unable to reconnect in 15 seconds');
-        break;
-      }
-      final delay = retryPolicy.backoff(_reconnectAttempt);
-      _logger.v(
-        () => '[fullReconnect] attempt: $_reconnectAttempt, '
-            'elapsed: $elapsed, delay: $delay',
-      );
-      await Future<void>.delayed(delay);
-      _logger.v(() => '[fullReconnect] joining to coordinator');
-      final joinedResult = await _joinIfNeeded();
-      if (joinedResult is! Success<CallCredentials>) {
-        _logger.e(() => '[fullReconnect] joining failed: $joinedResult');
-        continue;
-      }
-      _logger.v(() => '[fullReconnect] starting session');
-      result = await _startSession(joinedResult.data);
-      if (result is! Success<None>) {
-        _logger.w(() => '[fullReconnect] session start failed: $result');
-        continue;
-      }
-      _logger.v(() => '[fullReconnect] session started');
-      break;
-    }
-    _reconnectAttempt = 0;
-    if (result.isFailure) {
-      _logger.e(() => '[fullReconnect] <<<<<<<<<<<<<<< failed: $result');
-      _status.value = _ConnectionStatus.disconnected;
-      final error = (result as Failure).error;
-      _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
-      return;
-    }
-    _logger.v(() => '[fullReconnect] <<<<<<<<<<<<<<< completed');
-    _stateManager.lifecycleCallConnected(const CallConnected());
-    _status.value = _ConnectionStatus.connected;
-    await _applyConnectOptions();
-    _logger.v(() => '[fullReconnect] <<<<<<<<<<<<<<< side effects applied');
+    fastReconnectTimer.cancel();
+    return connectionStatus;
   }
 
   Future<Result<None>> _awaitIfNeeded() async {
     final state = this.state.value;
     final status = state.status;
     final settings = state.settings;
+
     Future<Result<None>>? futureResult;
     if (status is CallStatusOutgoing && !status.acceptedByCallee) {
       final timeout = settings.ring.autoCancelTimeout;
@@ -894,82 +1223,53 @@ class Call {
       _logger.d(() => '[awaitIfNeeded] joining to become joined');
       futureResult = _awaitCallToBeJoined();
     }
+
     if (futureResult != null) {
       _logger.v(() => '[awaitIfNeeded] return cancelable');
       return futureResult.asCancelable().storeIn(_idAwait, _cancelables).value;
     }
+
     return const Result.success(none);
   }
 
-  Future<Result<None>> leave() async {
+  /// Leaves the call.
+  ///
+  /// - [reason]: optional reason for leaving the call
+  Future<Result<None>> leave({DisconnectReason? reason}) async {
     final state = this.state.value;
-    _logger.i(() => '[leave] ${_status.value}; state: $state');
+    _logger.i(() => '[leave] state: $state');
+
     if (state.status.isDisconnected) {
       _logger.w(() => '[leave] rejected (state.status is disconnected)');
       return const Result.success(none);
     }
-    if (_status.value == _ConnectionStatus.disconnected) {
-      _logger.w(() => '[leave] rejected (status is disconnected)');
-      return const Result.success(none);
+
+    try {
+      _session?.leave(reason: 'user is leaving the call');
+    } finally {
+      await _clear('leave');
     }
-    _status.value = _ConnectionStatus.disconnected;
-    await _clear('leave');
-    _stateManager.lifecycleCallDisconnected(const CallDisconnected());
+
+    _stateManager.lifecycleCallDisconnected(reason: reason);
     _logger.v(() => '[leave] finished');
+
     return const Result.success(none);
-  }
-
-  Future<void> _switchSfu(SfuGoAwayReason reason) async {
-    _logger.d(() => '[switchSfu] reason: $reason');
-    final migratingFrom = _session?.config.sfuName;
-    final sessionId = _session?.sessionId;
-
-    if (_stateManager.callState.status is CallStatusMigrating) {
-      _logger.d(() => '[switchSfu] rejected (call already migrating)');
-      return;
-    }
-    await _stopSession();
-    _stateManager.lifecycleCallMigrating();
-    _logger.d(() => '[switchSfu] migratingFrom: $migratingFrom($sessionId)');
-    final joinedResult = await _joinCall(migratingFrom: migratingFrom);
-
-    if (joinedResult is! Success<CallJoinedData>) {
-      final failedResult = joinedResult as Failure;
-      _logger.e(() => '[switchSfu] failed: $failedResult');
-      final error = failedResult.error;
-      _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
-      return;
-    }
-
-    _session?.rtcManager
-        ?.updateReportingInterval(joinedResult.data.reportingIntervalMs);
-
-    _logger.v(() => '[switchSfu] starting sfu session');
-    final sessionResult = await _startSession(
-      joinedResult.data.credentials,
-      sessionId,
-    );
-    if (sessionResult is! Success<None>) {
-      _logger.w(() => '[switchSfu] sfu session start failed: $sessionResult');
-      final error = (sessionResult as Failure).error;
-      _stateManager.lifecycleCallConnectFailed(ConnectFailed(error));
-      return;
-    }
-    _logger.v(() => '[switchSfu] started session');
-    _stateManager.lifecycleCallConnected(const CallConnected());
-    await _applyConnectOptions();
-
-    _logger.v(() => '[switchSfu] completed');
   }
 
   Future<void> _clear(String src) async {
     _logger.d(() => '[clear] src: $src');
-    _status.value = _ConnectionStatus.disconnected;
+
+    for (final timer in _reactionTimers) {
+      timer.cancel();
+    }
+
     _subscriptions.cancelAll();
     _cancelables.cancelAll();
     await _session?.dispose();
     _session = null;
-    await _setActiveCall(null);
+    await dynascaleManager.dispose();
+    await _streamVideo.state.setActiveCall(null);
+    await _streamVideo.state.setOutgoingCall(null);
     _logger.v(() => '[clear] completed');
   }
 
@@ -985,30 +1285,123 @@ class Call {
     return [...?_session?.getTracks(trackIdPrefix)];
   }
 
-  void _setDefaultConnectOptions(CallSettings settings) {
-    connectOptions = connectOptions.copyWith(
+  /// Takes a picture of a VideoTrack at highest possible resolution
+  ///
+  /// - [participant]: the participant whose track to take a screenshot of
+  /// - [trackType]: optional type of track to take a screenshot of, defaults to [SfuTrackType.video]
+  Future<ByteBuffer?> takeScreenshot(
+    CallParticipantState participant, {
+    SfuTrackType? trackType,
+  }) async {
+    final track =
+        getTrack(participant.trackIdPrefix, trackType ?? SfuTrackType.video);
+
+    return track?.captureScreenshot();
+  }
+
+  Future<void> _applyCallSettingsToConnectOptions(CallSettings settings) async {
+    // Apply defaul audio output and input devices
+    final mediaDevicesResult =
+        await RtcMediaDeviceNotifier.instance.enumerateDevices();
+
+    final mediaDevices = mediaDevicesResult.fold(
+      success: (success) => success.data,
+      failure: (failure) => <RtcMediaDevice>[],
+    );
+
+    final audioOutputs = mediaDevices
+        .where((d) => d.kind == RtcMediaDeviceKind.audioOutput)
+        .toList();
+    final audioInputs = mediaDevices
+        .where((d) => d.kind == RtcMediaDeviceKind.audioInput)
+        .toList();
+
+    var defaultAudioOutput = audioOutputs.firstWhereOrNull((device) {
+      if (settings.audio.defaultDevice ==
+          AudioSettingsRequestDefaultDeviceEnum.speaker) {
+        return device.id.equalsIgnoreCase(
+          AudioSettingsRequestDefaultDeviceEnum.speaker.value,
+        );
+      }
+
+      return !device.id.equalsIgnoreCase(
+        AudioSettingsRequestDefaultDeviceEnum.speaker.value,
+      );
+    });
+
+    if (defaultAudioOutput == null && audioOutputs.isNotEmpty) {
+      defaultAudioOutput = audioOutputs.first;
+    }
+
+    final defaultAudioInput = audioInputs
+            .firstWhereOrNull((d) => d.label == defaultAudioOutput?.label) ??
+        audioInputs.firstOrNull;
+
+    _connectOptions = connectOptions.copyWith(
       camera: TrackOption.fromSetting(
         enabled: settings.video.cameraDefaultOn,
       ),
       microphone: TrackOption.fromSetting(
         enabled: settings.audio.micDefaultOn,
       ),
+      audioInputDevice: defaultAudioInput,
+      audioOutputDevice: defaultAudioOutput,
+      cameraFacingMode: settings.video.cameraFacing ==
+              VideoSettingsRequestCameraFacingEnum.front
+          ? FacingMode.user
+          : FacingMode.environment,
+      speakerDefaultOn: settings.audio.speakerDefaultOn,
+      targetResolution: settings.video.targetResolution,
+      screenShareTargetResolution: settings.screenShare.targetResolution,
     );
   }
 
   Future<void> _applyConnectOptions() async {
     _logger.d(() => '[applyConnectOptions] connectOptions: $_connectOptions');
-    await _applyCameraOption(_connectOptions.camera);
+    await _applyCameraOption(
+      _connectOptions.camera,
+      _connectOptions.cameraFacingMode,
+      _connectOptions.targetResolution,
+    );
     await _applyMicrophoneOption(_connectOptions.microphone);
-    await _applyScreenShareOption(_connectOptions.screenShare);
+    await _applyScreenShareOption(
+      _connectOptions.screenShare,
+      _connectOptions.screenShareTargetResolution,
+    );
+
+    if (_connectOptions.audioInputDevice != null) {
+      await setAudioInputDevice(_connectOptions.audioInputDevice!);
+    }
+
+    if (_connectOptions.audioOutputDevice != null) {
+      await setAudioOutputDevice(_connectOptions.audioOutputDevice!);
+    } else {
+      if (CurrentPlatform.isIos) {
+        await _session?.rtcManager?.setAppleAudioConfiguration(
+          speakerOn: _connectOptions.speakerDefaultOn,
+        );
+      }
+    }
+
     _logger.v(() => '[applyConnectOptions] finished');
   }
 
-  Future<void> _applyCameraOption(TrackOption cameraOption) async {
+  Future<void> _applyCameraOption(
+    TrackOption cameraOption,
+    FacingMode facingMode,
+    StreamTargetResolution? targetResolution,
+  ) async {
     if (cameraOption is TrackProvided) {
       await _setLocalTrack(cameraOption.track);
     } else if (cameraOption is TrackEnabled) {
-      await setCameraEnabled(enabled: true);
+      await setCameraEnabled(
+        enabled: true,
+        constraints: CameraConstraints(
+          facingMode: facingMode,
+          params: targetResolution?.toVideoParams() ??
+              RtcVideoParametersPresets.h720_16x9,
+        ),
+      );
     }
   }
 
@@ -1020,11 +1413,22 @@ class Call {
     }
   }
 
-  Future<void> _applyScreenShareOption(TrackOption screenShareOption) async {
+  Future<void> _applyScreenShareOption(
+    TrackOption screenShareOption,
+    StreamTargetResolution? targetResolution,
+  ) async {
     if (screenShareOption is TrackProvided) {
       await _setLocalTrack(screenShareOption.track);
     } else if (screenShareOption is TrackEnabled) {
-      await setScreenShareEnabled(enabled: true);
+      await setScreenShareEnabled(
+        enabled: true,
+        constraints: ScreenShareConstraints(
+          params: targetResolution?.toVideoParams(
+                defaultBitrate: RtcVideoParametersPresets.k1080pBitrate,
+              ) ??
+              RtcVideoParametersPresets.h1080_16x9,
+        ),
+      );
     }
   }
 
@@ -1040,21 +1444,18 @@ class Call {
     if (result.isSuccess) {
       final mediaConstraints = track.mediaConstraints;
       if (mediaConstraints is AudioConstraints) {
-        const action = SetMicrophoneEnabled(enabled: true);
-        _logger.v(() => '[setLocalTrack] composed action: $action');
+        _logger.v(() => '[setLocalTrack]: setMicrophoneEnabled true');
         await setMicrophoneEnabled(enabled: true);
       } else if (mediaConstraints is CameraConstraints) {
-        const action = SetCameraEnabled(enabled: true);
-        _logger.v(() => '[setLocalTrack] composed action: $action');
+        _logger.v(() => '[setLocalTrack]: setCameraEnabled true');
         await setCameraEnabled(enabled: true);
       } else if (mediaConstraints is ScreenShareConstraints) {
-        const action = SetScreenShareEnabled(enabled: true);
-        _logger.v(() => '[setLocalTrack] composed action: $action');
+        _logger.v(() => '[setLocalTrack] setScreenShareEnabled true');
         await setScreenShareEnabled(enabled: true);
       } else {
         streamLog.e(
           _tag,
-          () => '[composeControlAction] failed: $mediaConstraints',
+          () => '[_setLocalTrack] failed: $mediaConstraints',
         );
       }
     }
@@ -1108,6 +1509,7 @@ class Call {
     });
   }
 
+  /// Adds members to the current call.
   Future<Result<None>> addMembers(List<UserInfo> users) {
     return _coordinatorClient.addMembers(
       callCid: callCid,
@@ -1117,6 +1519,7 @@ class Call {
     );
   }
 
+  /// Removes members from the current call.
   Future<Result<None>> removeMembers(List<String> userIds) {
     return _coordinatorClient.removeMembers(
       callCid: callCid,
@@ -1137,21 +1540,27 @@ class Call {
     );
   }
 
-  /// Receives a call information. You can then use
-  /// the [CallReceivedData] in order to create a [Call] object.
+  /// Loads the information about the call.
+  ///
+  /// - [ringing]: If `true`, sends a VoIP notification, triggering the native call screen on iOS and Android.
+  /// - [notify]: If `true`, sends a standard push notification.
+  /// - [video]: Marks the call as a video call if `true`; otherwise, audio-only.
+  /// - [watch]:  If `true`, listens to coordinator events and updates call state accordingly.
+  /// - [membersLimit]: Sets the total number of members to return as part of the response.
   Future<Result<CallReceivedData>> get({
     int? membersLimit,
     bool ringing = false,
     bool notify = false,
+    bool video = false,
+    bool watch = true,
   }) async {
     _logger.d(
       () => '[get] cid: $callCid, membersLimit: $membersLimit'
-          ', ringing: $ringing, notify: $notify',
+          ', ringing: $ringing, notify: $notify, video: $video',
     );
-    final currentUserId = _getCurrentUserId();
-    if (currentUserId == null) {
-      _logger.e(() => '[get] failed (no userId)');
-      return Result.error('[get] failed; no user_id found');
+
+    if (watch) {
+      _observeEvents();
     }
 
     final response = await _coordinatorClient.getCall(
@@ -1159,15 +1568,17 @@ class Call {
       membersLimit: membersLimit,
       ringing: ringing,
       notify: notify,
+      video: video,
     );
 
     return response.fold(
       success: (it) {
-        _stateManager.lifecycleCallReceived(
-          CallReceived(it.data),
+        _stateManager.updateFromCallReceivedData(
+          it.data,
           ringing: ringing,
           notify: notify,
         );
+
         _logger.v(() => '[get] completed: ${it.data}');
         return it;
       },
@@ -1178,13 +1589,22 @@ class Call {
     );
   }
 
-  /// Receives a call or creates it with given information. You can then use
-  /// the [CallReceivedOrCreatedData] in order to create a [Call] object.
+  /// Loads the information about the call and creates it if it doesn't exist.
+  ///
+  /// - [ringing]: If `true`, sends a VoIP notification, triggering the native call screen on iOS and Android.
+  /// - [notify]: If `true`, sends a standard push notification.
+  /// - [video]: Marks the call as a video call if `true`; otherwise, audio-only.
+  /// - [watch]:  If `true`, listens to coordinator events and updates call state accordingly.
   Future<Result<CallReceivedOrCreatedData>> getOrCreate({
     List<String> memberIds = const [],
     bool ringing = false,
-    String? team,
+    bool video = false,
+    bool watch = true,
     bool? notify,
+    String? team,
+    DateTime? startsAt,
+    StreamBackstageSettings? backstage,
+    StreamLimitsSettings? limits,
     Map<String, Object> custom = const {},
   }) async {
     _logger.d(
@@ -1192,16 +1612,23 @@ class Call {
           'memberIds: $memberIds',
     );
 
-    final currentUserId = _getCurrentUserId();
-    if (currentUserId == null) {
-      _logger.e(() => '[getOrCreate] failed (no userId)');
-      return Result.error('[getOrCreate] failed; no user_id found');
+    if (watch) {
+      _observeEvents();
     }
+
+    if (ringing) {
+      await _streamVideo.state.setOutgoingCall(this);
+    }
+
+    final settingsOverride = CallSettingsRequest(
+      backstage: backstage?.toOpenDto(),
+      limits: limits?.toOpenDto(),
+    );
 
     final response = await _coordinatorClient.getOrCreateCall(
       callCid: callCid,
       ringing: ringing,
-      members: {...memberIds, currentUserId}.map((id) {
+      members: {...memberIds, _streamVideo.state.currentUser.id}.map((id) {
         return MemberRequest(
           userId: id,
           role: 'admin',
@@ -1209,30 +1636,24 @@ class Call {
       }).toList(),
       team: team,
       notify: notify,
+      video: video,
+      startsAt: startsAt,
+      settingsOverride: settingsOverride,
       custom: custom,
     );
 
-    final mediaDevicesResult =
-        await RtcMediaDeviceNotifier.instance.enumerateDevices();
-    final mediaDevices = mediaDevicesResult.fold(
-      success: (success) => success.data,
-      failure: (failure) => <RtcMediaDevice>[],
-    );
-
     return response.fold(
-      success: (it) {
-        _setDefaultConnectOptions(it.data.data.metadata.settings);
-
-        _stateManager.lifecycleCallCreated(
-          CallCreated(it.data.data),
-          ringing: ringing,
-          audioOutputs: mediaDevices
-              .where((d) => d.kind == RtcMediaDeviceKind.audioOutput)
-              .toList(),
-          audioInputs: mediaDevices
-              .where((d) => d.kind == RtcMediaDeviceKind.audioInput)
-              .toList(),
+      success: (it) async {
+        await _applyCallSettingsToConnectOptions(
+          it.data.data.metadata.settings,
         );
+
+        _stateManager.updateFromCallCreatedData(
+          it.data.data,
+          ringing: ringing,
+          callConnectOptions: connectOptions,
+        );
+
         _logger.v(() => '[getOrCreate] completed: ${it.data}');
         return it;
       },
@@ -1241,43 +1662,6 @@ class Call {
         return it;
       },
     );
-  }
-
-  /// Allows you to create a new call with the given parameters
-  /// and joins the call immediately.
-  Future<Result<CallJoinedData>> _joinCall({
-    bool create = false,
-    String? migratingFrom,
-  }) async {
-    _logger.d(() => '[joinCall] cid: $callCid, migratingFrom: $migratingFrom');
-    final joinResult = await _coordinatorClient.joinCall(
-      callCid: callCid,
-      create: create,
-      migratingFrom: migratingFrom,
-    );
-    if (joinResult is! Success<CoordinatorJoined>) {
-      _logger.e(() => '[joinCall] join failed: $joinResult');
-      return joinResult as Failure;
-    }
-    final receivedOrCreated = CallReceivedOrCreatedData(
-      wasCreated: joinResult.data.wasCreated,
-      data: CallCreatedData(
-        callCid: callCid,
-        metadata: joinResult.data.metadata,
-      ),
-    );
-    _stateManager.lifecycleCallCreated(CallCreated(receivedOrCreated.data));
-    _logger.v(() => '[joinCall] joinedMetadata: ${joinResult.data.metadata}');
-    final joined = CallJoinedData(
-      callCid: callCid,
-      wasCreated: joinResult.data.wasCreated,
-      metadata: joinResult.data.metadata,
-      credentials: joinResult.data.credentials,
-      reportingIntervalMs: joinResult.data.reportingIntervalMs,
-    );
-    _stateManager.lifecycleCallJoined(CallJoined(joined));
-    _logger.v(() => '[joinCall] completed: $joined');
-    return Result.success(joined);
   }
 
   /// Returns true if the current user has the [CallPermission] supplied.
@@ -1311,8 +1695,12 @@ class Call {
     return _permissionsManager.unblockUser(userId);
   }
 
-  Future<Result<None>> startRecording() async {
-    final result = await _permissionsManager.startRecording();
+  Future<Result<None>> startRecording({
+    String? recordingExternalStorage,
+  }) async {
+    final result = await _permissionsManager.startRecording(
+      recordingExternalStorage: recordingExternalStorage,
+    );
 
     if (result.isSuccess) {
       _stateManager.setCallRecording(isRecording: true);
@@ -1322,12 +1710,7 @@ class Call {
   }
 
   Future<Result<List<CallRecording>>> listRecordings() async {
-    final sessionId = _session?.sessionId;
-    if (sessionId == null) {
-      return Result.error('Session not found');
-    }
-
-    return _permissionsManager.listRecordings(sessionId);
+    return _permissionsManager.listRecordings();
   }
 
   Future<Result<None>> stopRecording() async {
@@ -1335,6 +1718,30 @@ class Call {
 
     if (result.isSuccess) {
       _stateManager.setCallRecording(isRecording: false);
+    }
+
+    return result;
+  }
+
+  Future<Result<None>> startTranscription() async {
+    final result = await _permissionsManager.startTranscription();
+
+    if (result.isSuccess) {
+      _stateManager.setCallTranscribing(isTranscribing: true);
+    }
+
+    return result;
+  }
+
+  Future<Result<List<CallTranscription>>> listTranscriptions() async {
+    return _permissionsManager.listTranscriptions();
+  }
+
+  Future<Result<None>> stopTranscription() async {
+    final result = await _permissionsManager.stopTranscription();
+
+    if (result.isSuccess) {
+      _stateManager.setCallTranscribing(isTranscribing: false);
     }
 
     return result;
@@ -1391,7 +1798,7 @@ class Call {
   /// can be override by passing a [track] to the function.
   ///
   /// Note: The user calling this function must have permission to perform the
-  ///  action else it will result in an error.
+  /// action else it will result in an error.
   Future<Result<None>> muteOthers({TrackType track = TrackType.audio}) {
     return _permissionsManager.muteOthers(track: track);
   }
@@ -1400,7 +1807,7 @@ class Call {
   /// calling the function.
   ///
   /// Note: The user calling this function must have permission to perform the
-  //  action else it will result in an error.
+  /// action else it will result in an error.
   Future<Result<None>> muteAllUsers() {
     return _permissionsManager.muteAllUsers();
   }
@@ -1411,7 +1818,7 @@ class Call {
 
     if (result.isSuccess) {
       _stateManager.participantUpdateCameraPosition(
-        SetCameraPosition(cameraPosition: cameraPosition),
+        cameraPosition: cameraPosition,
       );
     }
 
@@ -1423,7 +1830,11 @@ class Call {
         await _session?.flipCamera() ?? Result.error('Session is null');
 
     if (result.isSuccess) {
-      _stateManager.participantFlipCamera(const FlipCamera());
+      _connectOptions = connectOptions.copyWith(
+        cameraFacingMode: connectOptions.cameraFacingMode.flip(),
+      );
+
+      _stateManager.participantFlipCamera();
     }
 
     return result;
@@ -1434,8 +1845,7 @@ class Call {
         Result.error('Session is null');
 
     if (result.isSuccess) {
-      _stateManager
-          .participantSetVideoInputDevice(SetVideoInputDevice(device: device));
+      _stateManager.participantSetVideoInputDevice(device: device);
     }
 
     return result;
@@ -1445,16 +1855,22 @@ class Call {
     required bool enabled,
     CameraConstraints? constraints,
   }) async {
+    if (enabled && !hasPermission(CallPermission.sendVideo)) {
+      return Result.error('Missing permission to send video');
+    }
+
     final result =
         await _session?.setCameraEnabled(enabled, constraints: constraints) ??
             Result.error('Session is null');
 
     if (result.isSuccess) {
       _stateManager.participantSetCameraEnabled(
-        SetCameraEnabled(enabled: enabled),
+        enabled: enabled,
       );
+
       _connectOptions = _connectOptions.copyWith(
         camera: enabled ? TrackOption.enabled() : TrackOption.disabled(),
+        cameraFacingMode: constraints?.facingMode ?? FacingMode.user,
       );
     }
 
@@ -1465,6 +1881,10 @@ class Call {
     required bool enabled,
     AudioConstraints? constraints,
   }) async {
+    if (enabled && !hasPermission(CallPermission.sendAudio)) {
+      return Result.error('Missing permission to send video');
+    }
+
     final result = await _session?.setMicrophoneEnabled(
           enabled,
           constraints: constraints,
@@ -1473,14 +1893,23 @@ class Call {
 
     if (result.isSuccess) {
       _stateManager.participantSetMicrophoneEnabled(
-        SetMicrophoneEnabled(enabled: enabled),
+        enabled: enabled,
       );
+
       _connectOptions = _connectOptions.copyWith(
         microphone: enabled ? TrackOption.enabled() : TrackOption.disabled(),
       );
+
+      if (_connectOptions.audioOutputDevice != null) {
+        await setAudioOutputDevice(_connectOptions.audioOutputDevice!);
+      }
     }
 
     return result;
+  }
+
+  Future<bool> requestScreenSharePermission() {
+    return Helper.requestCapturePermission();
   }
 
   Future<Result<None>> setScreenShareEnabled({
@@ -1493,16 +1922,25 @@ class Call {
       return Result.error('Missing permission to share screen for the user');
     }
 
+    final updatedConstraints =
+        (constraints ?? const ScreenShareConstraints()).copyWith(
+      params: constraints?.params ??
+          _connectOptions.screenShareTargetResolution?.toVideoParams(
+            defaultBitrate: RtcVideoParametersPresets.k1080pBitrate,
+          ),
+    );
+
     final result = await _session?.setScreenShareEnabled(
           enabled,
-          constraints: constraints,
+          constraints: updatedConstraints,
         ) ??
         Result.error('Call session is null, cannot start screen share');
 
     if (result.isSuccess) {
       _stateManager.participantSetScreenShareEnabled(
-        SetScreenShareEnabled(enabled: enabled),
+        enabled: enabled,
       );
+
       _connectOptions = _connectOptions.copyWith(
         screenShare: enabled ? TrackOption.enabled() : TrackOption.disabled(),
       );
@@ -1516,8 +1954,9 @@ class Call {
         Result.error('Session is null');
 
     if (result.isSuccess) {
-      _stateManager
-          .participantSetAudioInputDevice(SetAudioInputDevice(device: device));
+      _connectOptions = connectOptions.copyWith(audioInputDevice: device);
+
+      _stateManager.participantSetAudioInputDevice(device: device);
     }
 
     return result;
@@ -1528,22 +1967,34 @@ class Call {
         Result.error('Session is null');
 
     if (result.isSuccess) {
+      _connectOptions = connectOptions.copyWith(audioOutputDevice: device);
+
       _stateManager.participantSetAudioOutputDevice(
-        SetAudioOutputDevice(device: device),
+        device: device,
       );
     }
 
     return result;
   }
 
-  Future<Result<None>> setParticipantPinned(
-    SetParticipantPinned action,
-  ) async {
-    final result = await _session?.setParticipantPinned(action) ??
+  Future<Result<None>> setParticipantPinned({
+    required String sessionId,
+    required String userId,
+    required bool pinned,
+  }) async {
+    final result = await _session?.setParticipantPinned(
+          sessionId: sessionId,
+          userId: userId,
+          pinned: pinned,
+        ) ??
         Result.error('Session is null');
 
     if (result.isSuccess) {
-      _stateManager.setParticipantPinned(action);
+      _stateManager.setParticipantPinned(
+        sessionId: sessionId,
+        userId: userId,
+        pinned: pinned,
+      );
     }
 
     return result;
@@ -1585,61 +2036,30 @@ class Call {
     required String userId,
     required ViewportVisibility visibility,
   }) async {
-    final action = UpdateViewportVisibility(
+    final change = VisibilityChange(
       sessionId: sessionId,
       userId: userId,
       visibility: visibility,
     );
 
-    final result = await _session?.updateViewportVisibility(action) ??
+    final result = await _session?.updateViewportVisibility(change) ??
         Result.error('Session is null');
 
     if (result.isSuccess) {
-      _stateManager.participantUpdateViewportVisibility(action);
-    }
-
-    return result;
-  }
-
-  Future<Result<None>> updateViewportVisibilities(
-    List<UpdateViewportVisibility> actions,
-  ) async {
-    final result = await _session?.updateViewportVisibilities(actions) ??
-        Result.error('Session is null');
-
-    if (result.isSuccess) {
-      _stateManager.participantUpdateViewportVisibilities(
-        UpdateViewportVisibilities(actions),
+      _stateManager.participantUpdateViewportVisibility(
+        sessionId: sessionId,
+        userId: userId,
+        visibility: visibility,
       );
     }
 
     return result;
   }
 
-  Future<Result<None>> setSubscriptions(List<SetSubscription> actions) async {
-    final result = await _session?.setSubscriptions(actions) ??
-        Result.error('Session is null');
-
-    // TODO: Verify this is not needed
-    // if (result.isSuccess) {
-    //   _stateManager
-    //       .participantUpdateSubscriptions();
-    // }
-
-    return result;
-  }
-
-  Future<Result<None>> updateSubscriptions(
-    List<SubscriptionAction> actions,
+  Future<Result<None>> setSubscriptions(
+    List<SubscriptionChange> changes,
   ) async {
-    final result = await _session?.updateSubscriptions(actions) ??
-        Result.error('Session is null');
-
-    if (result.isSuccess) {
-      _stateManager
-          .participantUpdateSubscriptions(UpdateSubscriptions(actions));
-    }
-
+    final result = await dynascaleManager.setSubscriptions(changes);
     return result;
   }
 
@@ -1649,31 +2069,16 @@ class Call {
     required String trackIdPrefix,
     required Map<SfuTrackTypeVideo, RtcVideoDimension> trackTypes,
   }) async {
-    final action = SetSubscription(
+    final change = SubscriptionChange.set(
       userId: userId,
       sessionId: sessionId,
       trackIdPrefix: trackIdPrefix,
       trackTypes: trackTypes,
     );
 
-    final result = await _session?.setSubscriptions([
-          action,
-        ]) ??
-        Result.error('Session is null');
-
-    // TODO: Verify this is not needed
-    // if (result.isSuccess) {
-    //   _stateManager.participantUpdateSubscriptions(
-    //     UpdateSubscriptions([
-    //       UpdateSubscription(
-    //         userId: userId,
-    //         sessionId: sessionId,
-    //         trackIdPrefix: trackIdPrefix,
-    //         trackType: trackTypes.keys.first,
-    //       ),
-    //     ]),
-    //   );
-    // }
+    final result = await dynascaleManager.setSubscriptions([
+      change,
+    ]);
 
     return result;
   }
@@ -1685,19 +2090,24 @@ class Call {
     required SfuTrackTypeVideo trackType,
     RtcVideoDimension? videoDimension,
   }) async {
-    final action = UpdateSubscription(
-      userId: userId,
-      sessionId: sessionId,
-      trackIdPrefix: trackIdPrefix,
-      trackType: trackType,
-      videoDimension: videoDimension,
+    final result = await dynascaleManager.updateSubscription(
+      SubscriptionChange.update(
+        userId: userId,
+        sessionId: sessionId,
+        trackIdPrefix: trackIdPrefix,
+        trackType: trackType,
+        videoDimension: videoDimension,
+      ),
     );
 
-    final result = await _session?.updateSubscription(action) ??
-        Result.error('Session is null');
-
     if (result.isSuccess) {
-      _stateManager.participantUpdateSubscription(action);
+      _stateManager.participantUpdateSubscription(
+        userId: userId,
+        sessionId: sessionId,
+        trackIdPrefix: trackIdPrefix,
+        trackType: trackType,
+        videoDimension: videoDimension,
+      );
     }
 
     return result;
@@ -1710,21 +2120,62 @@ class Call {
     required SfuTrackTypeVideo trackType,
     RtcVideoDimension? videoDimension,
   }) async {
-    final action = RemoveSubscription(
-      userId: userId,
-      sessionId: sessionId,
-      trackIdPrefix: trackIdPrefix,
-      trackType: trackType,
+    final result = await dynascaleManager.updateSubscription(
+      SubscriptionChange.update(
+        userId: userId,
+        sessionId: sessionId,
+        trackIdPrefix: trackIdPrefix,
+        trackType: trackType,
+      ),
     );
 
-    final result = await _session?.updateSubscription(action) ??
-        Result.error('Session is null');
-
     if (result.isSuccess) {
-      _stateManager.participantRemoveSubscription(action);
+      _stateManager.participantRemoveSubscription(
+        userId: userId,
+        sessionId: sessionId,
+        trackIdPrefix: trackIdPrefix,
+        trackType: trackType,
+      );
     }
 
     return result;
+  }
+
+  /// Specifies the preference for incoming video resolution. The preference will
+  /// be matched as closely as possible, but the actual resolution will depend
+  /// on the video source quality and client network conditions. This will enable
+  /// incoming video if it was previously disabled.
+  ///
+  /// [resolution] is the preferred resolution, or `null` to clear the preference.
+  /// [sessionIds] optionally specifies the session IDs of the participants this
+  /// preference affects. By default, it affects all participants.
+  Future<Result<None>> setPreferredIncomingVideoResolution(
+    VideoResolution? resolution, {
+    List<String>? sessionIds,
+  }) async {
+    dynascaleManager.setVideoTrackSubscriptionOverrides(
+      override: resolution != null
+          ? VideoTrackSubscriptionOverride(
+              dimension: RtcVideoDimension(
+                width: resolution.width,
+                height: resolution.height,
+              ),
+            )
+          : null,
+      sessionIds: sessionIds,
+    );
+
+    return dynascaleManager.applyTrackSubscriptions();
+  }
+
+  /// Enables or disables incoming video from all remote call participants,
+  /// and removes any preference for preferred resolution.
+  Future<Result<None>> setIncomingVideoEnabled(bool enabled) async {
+    dynascaleManager.setVideoTrackSubscriptionOverrides(
+      override: VideoTrackSubscriptionOverride(enabled: enabled),
+    );
+
+    return dynascaleManager.applyTrackSubscriptions();
   }
 
   Future<Result<QueriedMembers>> queryMembers({
@@ -1811,33 +2262,6 @@ PermissionsManager _makePermissionAwareManager(
     coordinatorClient: coordinatorClient,
     stateManager: stateManager,
   );
-}
-
-extension on CallStateNotifier {
-  Future<Result<None>> validateUserId(GetCurrentUserId getCurrentUserId) async {
-    final stateUserId = callState.currentUserId;
-    final currentUserId = getCurrentUserId() ?? '';
-    if (currentUserId.isEmpty) {
-      return Result.error('no userId');
-    }
-    if (stateUserId.isEmpty || stateUserId != currentUserId) {
-      lifecycleUpdateUserId(SetUserId(currentUserId));
-    }
-    return const Result.success(none);
-  }
-}
-
-@Deprecated('Rely on CallStatus')
-enum _ConnectionStatus {
-  disconnected,
-  connecting,
-  reconnecting,
-  connected;
-
-  @override
-  String toString() {
-    return name;
-  }
 }
 
 enum TrackType {

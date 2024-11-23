@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -11,7 +11,10 @@
 part of openapi.api;
 
 class ApiClient {
-  ApiClient({this.basePath = 'https://video.stream-io-api.com', this.authentication,});
+  ApiClient({
+    this.basePath = 'https://stream-io-api.com',
+    this.authentication,
+  });
 
   final String basePath;
   final Authentication? authentication;
@@ -32,7 +35,7 @@ class ApiClient {
   Map<String, String> get defaultHeaderMap => _defaultHeaderMap;
 
   void addDefaultHeader(String key, String value) {
-     _defaultHeaderMap[key] = value;
+    _defaultHeaderMap[key] = value;
   }
 
   // We don't use a Map<String, String> for queryParams.
@@ -54,25 +57,26 @@ class ApiClient {
     }
 
     final urlEncodedQueryParams = queryParams.map((param) => '$param');
-    final queryString = urlEncodedQueryParams.isNotEmpty ? '?${urlEncodedQueryParams.join('&')}' : '';
+    final queryString = urlEncodedQueryParams.isNotEmpty
+        ? '?${urlEncodedQueryParams.join('&')}'
+        : '';
     final uri = Uri.parse('$basePath$path$queryString');
 
     try {
       // Special case for uploading a single file which isn't a 'multipart/form-data'.
-      if (
-        body is MultipartFile && (contentType == null ||
-        !contentType.toLowerCase().startsWith('multipart/form-data'))
-      ) {
+      if (body is MultipartFile &&
+          (contentType == null ||
+              !contentType.toLowerCase().startsWith('multipart/form-data'))) {
         final request = StreamedRequest(method, uri);
         request.headers.addAll(headerParams);
         request.contentLength = body.length;
         body.finalize().listen(
-          request.sink.add,
-          onDone: request.sink.close,
-          // ignore: avoid_types_on_closure_parameters
-          onError: (Object error, StackTrace trace) => request.sink.close(),
-          cancelOnError: true,
-        );
+              request.sink.add,
+              onDone: request.sink.close,
+              // ignore: avoid_types_on_closure_parameters
+              onError: (Object error, StackTrace trace) => request.sink.close(),
+              cancelOnError: true,
+            );
         final response = await _client.send(request);
         return Response.fromStream(response);
       }
@@ -88,17 +92,45 @@ class ApiClient {
       }
 
       final msgBody = contentType == 'application/x-www-form-urlencoded'
-        ? formParams
-        : await serializeAsync(body);
+          ? formParams
+          : await serializeAsync(body);
       final nullableHeaderParams = headerParams.isEmpty ? null : headerParams;
 
-      switch(method) {
-        case 'POST': return await _client.post(uri, headers: nullableHeaderParams, body: msgBody,);
-        case 'PUT': return await _client.put(uri, headers: nullableHeaderParams, body: msgBody,);
-        case 'DELETE': return await _client.delete(uri, headers: nullableHeaderParams, body: msgBody,);
-        case 'PATCH': return await _client.patch(uri, headers: nullableHeaderParams, body: msgBody,);
-        case 'HEAD': return await _client.head(uri, headers: nullableHeaderParams,);
-        case 'GET': return await _client.get(uri, headers: nullableHeaderParams,);
+      switch (method) {
+        case 'POST':
+          return await _client.post(
+            uri,
+            headers: nullableHeaderParams,
+            body: msgBody,
+          );
+        case 'PUT':
+          return await _client.put(
+            uri,
+            headers: nullableHeaderParams,
+            body: msgBody,
+          );
+        case 'DELETE':
+          return await _client.delete(
+            uri,
+            headers: nullableHeaderParams,
+            body: msgBody,
+          );
+        case 'PATCH':
+          return await _client.patch(
+            uri,
+            headers: nullableHeaderParams,
+            body: msgBody,
+          );
+        case 'HEAD':
+          return await _client.head(
+            uri,
+            headers: nullableHeaderParams,
+          );
+        case 'GET':
+          return await _client.get(
+            uri,
+            headers: nullableHeaderParams,
+          );
       }
     } on SocketException catch (error, trace) {
       throw ApiException.withInner(
@@ -143,28 +175,44 @@ class ApiClient {
     );
   }
 
-  Future<dynamic> deserializeAsync(String json, String targetType, {bool growable = false,}) async =>
-    // ignore: deprecated_member_use_from_same_package
-    deserialize(json, targetType, growable: growable);
+  Future<dynamic> deserializeAsync(
+    String value,
+    String targetType, {
+    bool growable = false,
+  }) async =>
+      // ignore: deprecated_member_use_from_same_package
+      deserialize(value, targetType, growable: growable);
 
-  @Deprecated('Scheduled for removal in OpenAPI Generator 6.x. Use deserializeAsync() instead.')
-  dynamic deserialize(String json, String targetType, {bool growable = false,}) {
+  @Deprecated(
+      'Scheduled for removal in OpenAPI Generator 6.x. Use deserializeAsync() instead.')
+  dynamic deserialize(
+    String value,
+    String targetType, {
+    bool growable = false,
+  }) {
     // Remove all spaces. Necessary for regular expressions as well.
-    targetType = targetType.replaceAll(' ', ''); // ignore: parameter_assignments
+    targetType =
+        targetType.replaceAll(' ', ''); // ignore: parameter_assignments
 
     // If the expected target type is String, nothing to do...
     return targetType == 'String'
-      ? json
-      : _deserialize(jsonDecode(json), targetType, growable: growable);
+        ? value
+        : fromJson(json.decode(value), targetType, growable: growable);
   }
 
   // ignore: deprecated_member_use_from_same_package
   Future<String> serializeAsync(Object? value) async => serialize(value);
 
-  @Deprecated('Scheduled for removal in OpenAPI Generator 6.x. Use serializeAsync() instead.')
+  @Deprecated(
+      'Scheduled for removal in OpenAPI Generator 6.x. Use serializeAsync() instead.')
   String serialize(Object? value) => value == null ? '' : json.encode(value);
 
-  static dynamic _deserialize(dynamic value, String targetType, {bool growable = false}) {
+  /// Returns a native instance of an OpenAPI class matching the [specified type][targetType].
+  static dynamic fromJson(
+    dynamic value,
+    String targetType, {
+    bool growable = false,
+  }) {
     try {
       switch (targetType) {
         case 'String':
@@ -183,40 +231,56 @@ class ApiClient {
           return value is DateTime ? value : DateTime.tryParse(value);
         case 'APIError':
           return APIError.fromJson(value);
-        case 'APNS':
-          return APNS.fromJson(value);
-        case 'APNSRequest':
-          return APNSRequest.fromJson(value);
         case 'AcceptCallResponse':
           return AcceptCallResponse.fromJson(value);
-        case 'AudioSettings':
-          return AudioSettings.fromJson(value);
+        case 'Action':
+          return Action.fromJson(value);
+        case 'ActionLog':
+          return ActionLog.fromJson(value);
+        case 'AggregatedStats':
+          return AggregatedStats.fromJson(value);
+        case 'Attachment':
+          return Attachment.fromJson(value);
         case 'AudioSettingsRequest':
           return AudioSettingsRequest.fromJson(value);
-        case 'BackstageSettings':
-          return BackstageSettings.fromJson(value);
+        case 'AudioSettingsResponse':
+          return AudioSettingsResponse.fromJson(value);
         case 'BackstageSettingsRequest':
           return BackstageSettingsRequest.fromJson(value);
+        case 'BackstageSettingsResponse':
+          return BackstageSettingsResponse.fromJson(value);
+        case 'Ban':
+          return Ban.fromJson(value);
+        case 'BlockListOptions':
+          return BlockListOptions.fromJson(value);
         case 'BlockUserRequest':
           return BlockUserRequest.fromJson(value);
         case 'BlockUserResponse':
           return BlockUserResponse.fromJson(value);
         case 'BlockedUserEvent':
           return BlockedUserEvent.fromJson(value);
-        case 'BroadcastSettings':
-          return BroadcastSettings.fromJson(value);
         case 'BroadcastSettingsRequest':
           return BroadcastSettingsRequest.fromJson(value);
+        case 'BroadcastSettingsResponse':
+          return BroadcastSettingsResponse.fromJson(value);
         case 'CallAcceptedEvent':
           return CallAcceptedEvent.fromJson(value);
-        case 'CallBroadcastingStartedEvent':
-          return CallBroadcastingStartedEvent.fromJson(value);
-        case 'CallBroadcastingStoppedEvent':
-          return CallBroadcastingStoppedEvent.fromJson(value);
+        case 'CallClosedCaption':
+          return CallClosedCaption.fromJson(value);
         case 'CallCreatedEvent':
           return CallCreatedEvent.fromJson(value);
+        case 'CallDeletedEvent':
+          return CallDeletedEvent.fromJson(value);
         case 'CallEndedEvent':
           return CallEndedEvent.fromJson(value);
+        case 'CallEvent':
+          return CallEvent.fromJson(value);
+        case 'CallHLSBroadcastingFailedEvent':
+          return CallHLSBroadcastingFailedEvent.fromJson(value);
+        case 'CallHLSBroadcastingStartedEvent':
+          return CallHLSBroadcastingStartedEvent.fromJson(value);
+        case 'CallHLSBroadcastingStoppedEvent':
+          return CallHLSBroadcastingStoppedEvent.fromJson(value);
         case 'CallIngressResponse':
           return CallIngressResponse.fromJson(value);
         case 'CallLiveStartedEvent':
@@ -229,6 +293,8 @@ class ApiClient {
           return CallMemberUpdatedEvent.fromJson(value);
         case 'CallMemberUpdatedPermissionEvent':
           return CallMemberUpdatedPermissionEvent.fromJson(value);
+        case 'CallMissedEvent':
+          return CallMissedEvent.fromJson(value);
         case 'CallNotificationEvent':
           return CallNotificationEvent.fromJson(value);
         case 'CallParticipantResponse':
@@ -253,8 +319,16 @@ class ApiClient {
           return CallResponse.fromJson(value);
         case 'CallRingEvent':
           return CallRingEvent.fromJson(value);
+        case 'CallRtmpBroadcastFailedEvent':
+          return CallRtmpBroadcastFailedEvent.fromJson(value);
+        case 'CallRtmpBroadcastStartedEvent':
+          return CallRtmpBroadcastStartedEvent.fromJson(value);
+        case 'CallRtmpBroadcastStoppedEvent':
+          return CallRtmpBroadcastStoppedEvent.fromJson(value);
         case 'CallSessionEndedEvent':
           return CallSessionEndedEvent.fromJson(value);
+        case 'CallSessionParticipantCountsUpdatedEvent':
+          return CallSessionParticipantCountsUpdatedEvent.fromJson(value);
         case 'CallSessionParticipantJoinedEvent':
           return CallSessionParticipantJoinedEvent.fromJson(value);
         case 'CallSessionParticipantLeftEvent':
@@ -269,22 +343,56 @@ class ApiClient {
           return CallSettingsResponse.fromJson(value);
         case 'CallStateResponseFields':
           return CallStateResponseFields.fromJson(value);
-        case 'CallTypeResponse':
-          return CallTypeResponse.fromJson(value);
+        case 'CallStatsReportSummaryResponse':
+          return CallStatsReportSummaryResponse.fromJson(value);
+        case 'CallTimeline':
+          return CallTimeline.fromJson(value);
+        case 'CallTranscription':
+          return CallTranscription.fromJson(value);
+        case 'CallTranscriptionFailedEvent':
+          return CallTranscriptionFailedEvent.fromJson(value);
+        case 'CallTranscriptionReadyEvent':
+          return CallTranscriptionReadyEvent.fromJson(value);
+        case 'CallTranscriptionStartedEvent':
+          return CallTranscriptionStartedEvent.fromJson(value);
+        case 'CallTranscriptionStoppedEvent':
+          return CallTranscriptionStoppedEvent.fromJson(value);
         case 'CallUpdatedEvent':
           return CallUpdatedEvent.fromJson(value);
-        case 'CallUserMuted':
-          return CallUserMuted.fromJson(value);
+        case 'CallUserMutedEvent':
+          return CallUserMutedEvent.fromJson(value);
+        case 'Channel':
+          return Channel.fromJson(value);
+        case 'ChannelConfig':
+          return ChannelConfig.fromJson(value);
+        case 'ChannelConfigWithInfo':
+          return ChannelConfigWithInfo.fromJson(value);
+        case 'ChannelMember':
+          return ChannelMember.fromJson(value);
+        case 'ChannelMute':
+          return ChannelMute.fromJson(value);
+        case 'ChannelResponse':
+          return ChannelResponse.fromJson(value);
+        case 'ClosedCaptionEvent':
+          return ClosedCaptionEvent.fromJson(value);
+        case 'CollectUserFeedbackRequest':
+          return CollectUserFeedbackRequest.fromJson(value);
+        case 'CollectUserFeedbackResponse':
+          return CollectUserFeedbackResponse.fromJson(value);
+        case 'Command':
+          return Command.fromJson(value);
         case 'ConnectUserDetailsRequest':
           return ConnectUserDetailsRequest.fromJson(value);
         case 'ConnectedEvent':
           return ConnectedEvent.fromJson(value);
         case 'ConnectionErrorEvent':
           return ConnectionErrorEvent.fromJson(value);
-        case 'CreateCallTypeRequest':
-          return CreateCallTypeRequest.fromJson(value);
-        case 'CreateCallTypeResponse':
-          return CreateCallTypeResponse.fromJson(value);
+        case 'Coordinates':
+          return Coordinates.fromJson(value);
+        case 'Count':
+          return Count.fromJson(value);
+        case 'CountrywiseAggregateStats':
+          return CountrywiseAggregateStats.fromJson(value);
         case 'CreateDeviceRequest':
           return CreateDeviceRequest.fromJson(value);
         case 'CreateGuestRequest':
@@ -295,6 +403,16 @@ class ApiClient {
           return Credentials.fromJson(value);
         case 'CustomVideoEvent':
           return CustomVideoEvent.fromJson(value);
+        case 'Data':
+          return Data.fromJson(value);
+        case 'DeleteCallRequest':
+          return DeleteCallRequest.fromJson(value);
+        case 'DeleteCallResponse':
+          return DeleteCallResponse.fromJson(value);
+        case 'DeleteRecordingResponse':
+          return DeleteRecordingResponse.fromJson(value);
+        case 'DeleteTranscriptionResponse':
+          return DeleteTranscriptionResponse.fromJson(value);
         case 'Device':
           return Device.fromJson(value);
         case 'EdgeResponse':
@@ -307,18 +425,24 @@ class ApiClient {
           return EgressResponse.fromJson(value);
         case 'EndCallResponse':
           return EndCallResponse.fromJson(value);
-        case 'EventNotificationSettings':
-          return EventNotificationSettings.fromJson(value);
-        case 'EventNotificationSettingsRequest':
-          return EventNotificationSettingsRequest.fromJson(value);
-        case 'GeofenceSettings':
-          return GeofenceSettings.fromJson(value);
+        case 'EnrichedActivity':
+          return EnrichedActivity.fromJson(value);
+        case 'EnrichedReaction':
+          return EnrichedReaction.fromJson(value);
+        case 'Field':
+          return Field.fromJson(value);
+        case 'Flag2':
+          return Flag2.fromJson(value);
         case 'GeofenceSettingsRequest':
           return GeofenceSettingsRequest.fromJson(value);
+        case 'GeofenceSettingsResponse':
+          return GeofenceSettingsResponse.fromJson(value);
+        case 'GeolocationResult':
+          return GeolocationResult.fromJson(value);
         case 'GetCallResponse':
           return GetCallResponse.fromJson(value);
-        case 'GetCallTypeResponse':
-          return GetCallTypeResponse.fromJson(value);
+        case 'GetCallStatsResponse':
+          return GetCallStatsResponse.fromJson(value);
         case 'GetEdgesResponse':
           return GetEdgesResponse.fromJson(value);
         case 'GetOrCreateCallRequest':
@@ -329,36 +453,66 @@ class ApiClient {
           return GoLiveRequest.fromJson(value);
         case 'GoLiveResponse':
           return GoLiveResponse.fromJson(value);
-        case 'HLSSettings':
-          return HLSSettings.fromJson(value);
         case 'HLSSettingsRequest':
           return HLSSettingsRequest.fromJson(value);
+        case 'HLSSettingsResponse':
+          return HLSSettingsResponse.fromJson(value);
         case 'HealthCheckEvent':
           return HealthCheckEvent.fromJson(value);
         case 'ICEServer':
           return ICEServer.fromJson(value);
+        case 'ImageData':
+          return ImageData.fromJson(value);
+        case 'Images':
+          return Images.fromJson(value);
         case 'JoinCallRequest':
           return JoinCallRequest.fromJson(value);
         case 'JoinCallResponse':
           return JoinCallResponse.fromJson(value);
-        case 'ListCallTypeResponse':
-          return ListCallTypeResponse.fromJson(value);
+        case 'LabelThresholds':
+          return LabelThresholds.fromJson(value);
+        case 'LayoutSettingsRequest':
+          return LayoutSettingsRequest.fromJson(value);
+        case 'LimitsSettingsRequest':
+          return LimitsSettingsRequest.fromJson(value);
+        case 'LimitsSettingsResponse':
+          return LimitsSettingsResponse.fromJson(value);
         case 'ListDevicesResponse':
           return ListDevicesResponse.fromJson(value);
         case 'ListRecordingsResponse':
           return ListRecordingsResponse.fromJson(value);
+        case 'ListTranscriptionsResponse':
+          return ListTranscriptionsResponse.fromJson(value);
+        case 'Location':
+          return Location.fromJson(value);
+        case 'MOSStats':
+          return MOSStats.fromJson(value);
+        case 'MediaPubSubHint':
+          return MediaPubSubHint.fromJson(value);
         case 'MemberRequest':
           return MemberRequest.fromJson(value);
         case 'MemberResponse':
           return MemberResponse.fromJson(value);
+        case 'Message':
+          return Message.fromJson(value);
+        case 'ModerationCustomActionEvent':
+          return ModerationCustomActionEvent.fromJson(value);
+        case 'ModerationFlaggedEvent':
+          return ModerationFlaggedEvent.fromJson(value);
+        case 'ModerationMarkReviewedEvent':
+          return ModerationMarkReviewedEvent.fromJson(value);
+        case 'ModerationPayload':
+          return ModerationPayload.fromJson(value);
         case 'MuteUsersRequest':
           return MuteUsersRequest.fromJson(value);
         case 'MuteUsersResponse':
           return MuteUsersResponse.fromJson(value);
-        case 'NotificationSettings':
-          return NotificationSettings.fromJson(value);
-        case 'NotificationSettingsRequest':
-          return NotificationSettingsRequest.fromJson(value);
+        case 'NoiseCancellationSettings':
+          return NoiseCancellationSettings.fromJson(value);
+        case 'NullBool':
+          return NullBool.fromJson(value);
+        case 'NullTime':
+          return NullTime.fromJson(value);
         case 'OwnCapability':
           return OwnCapabilityTypeTransformer().decode(value);
         case 'OwnUserResponse':
@@ -369,74 +523,147 @@ class ApiClient {
           return PinRequest.fromJson(value);
         case 'PinResponse':
           return PinResponse.fromJson(value);
+        case 'Poll':
+          return Poll.fromJson(value);
+        case 'PollOption':
+          return PollOption.fromJson(value);
+        case 'PollVote':
+          return PollVote.fromJson(value);
+        case 'PrivacySettings':
+          return PrivacySettings.fromJson(value);
+        case 'PrivacySettingsResponse':
+          return PrivacySettingsResponse.fromJson(value);
+        case 'PublishedTrackInfo':
+          return PublishedTrackInfo.fromJson(value);
+        case 'PublisherAggregateStats':
+          return PublisherAggregateStats.fromJson(value);
+        case 'PushNotificationSettings':
+          return PushNotificationSettings.fromJson(value);
+        case 'PushNotificationSettingsInput':
+          return PushNotificationSettingsInput.fromJson(value);
+        case 'PushNotificationSettingsResponse':
+          return PushNotificationSettingsResponse.fromJson(value);
+        case 'QueryCallMembersRequest':
+          return QueryCallMembersRequest.fromJson(value);
+        case 'QueryCallMembersResponse':
+          return QueryCallMembersResponse.fromJson(value);
+        case 'QueryCallStatsRequest':
+          return QueryCallStatsRequest.fromJson(value);
+        case 'QueryCallStatsResponse':
+          return QueryCallStatsResponse.fromJson(value);
         case 'QueryCallsRequest':
           return QueryCallsRequest.fromJson(value);
         case 'QueryCallsResponse':
           return QueryCallsResponse.fromJson(value);
-        case 'QueryMembersRequest':
-          return QueryMembersRequest.fromJson(value);
-        case 'QueryMembersResponse':
-          return QueryMembersResponse.fromJson(value);
+        case 'RTMPBroadcastRequest':
+          return RTMPBroadcastRequest.fromJson(value);
         case 'RTMPIngress':
           return RTMPIngress.fromJson(value);
+        case 'RTMPSettingsRequest':
+          return RTMPSettingsRequest.fromJson(value);
+        case 'RTMPSettingsResponse':
+          return RTMPSettingsResponse.fromJson(value);
+        case 'Reaction':
+          return Reaction.fromJson(value);
+        case 'ReactionGroupResponse':
+          return ReactionGroupResponse.fromJson(value);
         case 'ReactionResponse':
           return ReactionResponse.fromJson(value);
-        case 'RecordSettings':
-          return RecordSettings.fromJson(value);
+        case 'ReadReceipts':
+          return ReadReceipts.fromJson(value);
+        case 'ReadReceiptsResponse':
+          return ReadReceiptsResponse.fromJson(value);
         case 'RecordSettingsRequest':
           return RecordSettingsRequest.fromJson(value);
+        case 'RecordSettingsResponse':
+          return RecordSettingsResponse.fromJson(value);
+        case 'RejectCallRequest':
+          return RejectCallRequest.fromJson(value);
         case 'RejectCallResponse':
           return RejectCallResponse.fromJson(value);
         case 'RequestPermissionRequest':
           return RequestPermissionRequest.fromJson(value);
         case 'RequestPermissionResponse':
           return RequestPermissionResponse.fromJson(value);
+        // MANUAL_EDIT: Response -> DurationResponse
         case 'DurationResponse':
           return DurationResponse.fromJson(value);
-        case 'RingSettings':
-          return RingSettings.fromJson(value);
+        case 'ReviewQueueItem':
+          return ReviewQueueItem.fromJson(value);
         case 'RingSettingsRequest':
           return RingSettingsRequest.fromJson(value);
+        case 'RingSettingsResponse':
+          return RingSettingsResponse.fromJson(value);
+        case 'SFULocationResponse':
+          return SFULocationResponse.fromJson(value);
         case 'SFUResponse':
           return SFUResponse.fromJson(value);
-        case 'ScreensharingSettings':
-          return ScreensharingSettings.fromJson(value);
         case 'ScreensharingSettingsRequest':
           return ScreensharingSettingsRequest.fromJson(value);
-        case 'SendEventRequest':
-          return SendEventRequest.fromJson(value);
-        case 'SendEventResponse':
-          return SendEventResponse.fromJson(value);
+        case 'ScreensharingSettingsResponse':
+          return ScreensharingSettingsResponse.fromJson(value);
+        case 'SendCallEventRequest':
+          return SendCallEventRequest.fromJson(value);
+        case 'SendCallEventResponse':
+          return SendCallEventResponse.fromJson(value);
         case 'SendReactionRequest':
           return SendReactionRequest.fromJson(value);
         case 'SendReactionResponse':
           return SendReactionResponse.fromJson(value);
         case 'SortParamRequest':
           return SortParamRequest.fromJson(value);
-        case 'StartBroadcastingResponse':
-          return StartBroadcastingResponse.fromJson(value);
+        case 'StartHLSBroadcastingResponse':
+          return StartHLSBroadcastingResponse.fromJson(value);
+        case 'StartRTMPBroadcastsRequest':
+          return StartRTMPBroadcastsRequest.fromJson(value);
+        case 'StartRTMPBroadcastsResponse':
+          return StartRTMPBroadcastsResponse.fromJson(value);
+        case 'StartRecordingRequest':
+          return StartRecordingRequest.fromJson(value);
         case 'StartRecordingResponse':
           return StartRecordingResponse.fromJson(value);
+        case 'StartTranscriptionRequest':
+          return StartTranscriptionRequest.fromJson(value);
         case 'StartTranscriptionResponse':
           return StartTranscriptionResponse.fromJson(value);
         case 'StatsOptions':
           return StatsOptions.fromJson(value);
-        case 'StopBroadcastingResponse':
-          return StopBroadcastingResponse.fromJson(value);
+        case 'StopAllRTMPBroadcastsResponse':
+          return StopAllRTMPBroadcastsResponse.fromJson(value);
+        case 'StopHLSBroadcastingResponse':
+          return StopHLSBroadcastingResponse.fromJson(value);
         case 'StopLiveResponse':
           return StopLiveResponse.fromJson(value);
+        case 'StopRTMPBroadcastsResponse':
+          return StopRTMPBroadcastsResponse.fromJson(value);
         case 'StopRecordingResponse':
           return StopRecordingResponse.fromJson(value);
         case 'StopTranscriptionResponse':
           return StopTranscriptionResponse.fromJson(value);
+        case 'Subsession':
+          return Subsession.fromJson(value);
+        case 'TURNAggregatedStats':
+          return TURNAggregatedStats.fromJson(value);
         case 'TargetResolution':
           return TargetResolution.fromJson(value);
-        case 'TargetResolutionRequest':
-          return TargetResolutionRequest.fromJson(value);
-        case 'TranscriptionSettings':
-          return TranscriptionSettings.fromJson(value);
+        case 'Thresholds':
+          return Thresholds.fromJson(value);
+        case 'ThumbnailResponse':
+          return ThumbnailResponse.fromJson(value);
+        case 'ThumbnailsSettingsRequest':
+          return ThumbnailsSettingsRequest.fromJson(value);
+        case 'ThumbnailsSettingsResponse':
+          return ThumbnailsSettingsResponse.fromJson(value);
+        case 'TimeStats':
+          return TimeStats.fromJson(value);
         case 'TranscriptionSettingsRequest':
           return TranscriptionSettingsRequest.fromJson(value);
+        case 'TranscriptionSettingsResponse':
+          return TranscriptionSettingsResponse.fromJson(value);
+        case 'TypingIndicators':
+          return TypingIndicators.fromJson(value);
+        case 'TypingIndicatorsResponse':
+          return TypingIndicatorsResponse.fromJson(value);
         case 'UnblockUserRequest':
           return UnblockUserRequest.fromJson(value);
         case 'UnblockUserResponse':
@@ -455,55 +682,110 @@ class ApiClient {
           return UpdateCallRequest.fromJson(value);
         case 'UpdateCallResponse':
           return UpdateCallResponse.fromJson(value);
-        case 'UpdateCallTypeRequest':
-          return UpdateCallTypeRequest.fromJson(value);
-        case 'UpdateCallTypeResponse':
-          return UpdateCallTypeResponse.fromJson(value);
         case 'UpdateUserPermissionsRequest':
           return UpdateUserPermissionsRequest.fromJson(value);
         case 'UpdateUserPermissionsResponse':
           return UpdateUserPermissionsResponse.fromJson(value);
         case 'UpdatedCallPermissionsEvent':
           return UpdatedCallPermissionsEvent.fromJson(value);
+        case 'UserBannedEvent':
+          return UserBannedEvent.fromJson(value);
+        case 'UserDeactivatedEvent':
+          return UserDeactivatedEvent.fromJson(value);
+        case 'UserDeletedEvent':
+          return UserDeletedEvent.fromJson(value);
+        case 'UserEventPayload':
+          return UserEventPayload.fromJson(value);
+        case 'UserFlaggedEvent':
+          return UserFlaggedEvent.fromJson(value);
+        case 'UserInfoResponse':
+          return UserInfoResponse.fromJson(value);
+        case 'UserMuteResponse':
+          return UserMuteResponse.fromJson(value);
+        case 'UserMutedEvent':
+          return UserMutedEvent.fromJson(value);
+        case 'UserObject':
+          return UserObject.fromJson(value);
+        case 'UserPresenceChangedEvent':
+          return UserPresenceChangedEvent.fromJson(value);
+        case 'UserReactivatedEvent':
+          return UserReactivatedEvent.fromJson(value);
         case 'UserRequest':
           return UserRequest.fromJson(value);
         case 'UserResponse':
           return UserResponse.fromJson(value);
-        case 'VideoEvent':
-          return VideoEvent.fromJson(value);
-        case 'VideoSettings':
-          return VideoSettings.fromJson(value);
+        case 'UserSessionStats':
+          return UserSessionStats.fromJson(value);
+        case 'UserStats':
+          return UserStats.fromJson(value);
+        case 'UserUnbannedEvent':
+          return UserUnbannedEvent.fromJson(value);
+        case 'UserUnmutedEvent':
+          return UserUnmutedEvent.fromJson(value);
+        case 'UserUpdatedEvent':
+          return UserUpdatedEvent.fromJson(value);
+        case 'VideoQuality':
+          return VideoQuality.fromJson(value);
+        case 'VideoResolution':
+          return VideoResolution.fromJson(value);
         case 'VideoSettingsRequest':
           return VideoSettingsRequest.fromJson(value);
-        case 'WSAuthMessageRequest':
-          return WSAuthMessageRequest.fromJson(value);
-        case 'WSCallEvent':
-          return WSCallEvent.fromJson(value);
+        case 'VideoSettingsResponse':
+          return VideoSettingsResponse.fromJson(value);
+        case 'WSAuthMessage':
+          return WSAuthMessage.fromJson(value);
         case 'WSClientEvent':
           return WSClientEvent.fromJson(value);
+        case 'WSEvent':
+          return WSEvent.fromJson(value);
+        case 'WebhookEvent':
+          return WebhookEvent.fromJson(value);
         default:
           dynamic match;
-          if (value is List && (match = _regList.firstMatch(targetType)?.group(1)) != null) {
+          if (value is List &&
+              (match = _regList.firstMatch(targetType)?.group(1)) != null) {
             return value
-              .map<dynamic>((dynamic v) => _deserialize(v, match, growable: growable,))
-              .toList(growable: growable);
+                .map<dynamic>((dynamic v) => fromJson(
+                      v,
+                      match,
+                      growable: growable,
+                    ))
+                .toList(growable: growable);
           }
-          if (value is Set && (match = _regSet.firstMatch(targetType)?.group(1)) != null) {
+          if (value is Set &&
+              (match = _regSet.firstMatch(targetType)?.group(1)) != null) {
             return value
-              .map<dynamic>((dynamic v) => _deserialize(v, match, growable: growable,))
-              .toSet();
+                .map<dynamic>((dynamic v) => fromJson(
+                      v,
+                      match,
+                      growable: growable,
+                    ))
+                .toSet();
           }
-          if (value is Map && (match = _regMap.firstMatch(targetType)?.group(1)) != null) {
+          if (value is Map &&
+              (match = _regMap.firstMatch(targetType)?.group(1)) != null) {
             return Map<String, dynamic>.fromIterables(
               value.keys.cast<String>(),
-              value.values.map<dynamic>((dynamic v) => _deserialize(v, match, growable: growable,)),
+              value.values.map<dynamic>((dynamic v) => fromJson(
+                    v,
+                    match,
+                    growable: growable,
+                  )),
             );
           }
       }
     } on Exception catch (error, trace) {
-      throw ApiException.withInner(HttpStatus.internalServerError, 'Exception during deserialization.', error, trace,);
+      throw ApiException.withInner(
+        HttpStatus.internalServerError,
+        'Exception during deserialization.',
+        error,
+        trace,
+      );
     }
-    throw ApiException(HttpStatus.internalServerError, 'Could not find a suitable class for deserialization',);
+    throw ApiException(
+      HttpStatus.internalServerError,
+      'Could not find a suitable class for deserialization',
+    );
   }
 }
 
@@ -526,19 +808,29 @@ class DeserializationMessage {
 }
 
 /// Primarily intended for use in an isolate.
+Future<dynamic> decodeAsync(DeserializationMessage message) async {
+  // Remove all spaces. Necessary for regular expressions as well.
+  final targetType = message.targetType.replaceAll(' ', '');
+
+  // If the expected target type is String, nothing to do...
+  return targetType == 'String' ? message.json : json.decode(message.json);
+}
+
+/// Primarily intended for use in an isolate.
 Future<dynamic> deserializeAsync(DeserializationMessage message) async {
   // Remove all spaces. Necessary for regular expressions as well.
   final targetType = message.targetType.replaceAll(' ', '');
 
   // If the expected target type is String, nothing to do...
   return targetType == 'String'
-    ? message.json
-    : ApiClient._deserialize(
-        jsonDecode(message.json),
-        targetType,
-        growable: message.growable,
-      );
+      ? message.json
+      : ApiClient.fromJson(
+          json.decode(message.json),
+          targetType,
+          growable: message.growable,
+        );
 }
 
 /// Primarily intended for use in an isolate.
-Future<String> serializeAsync(Object? value) async => value == null ? '' : json.encode(value);
+Future<String> serializeAsync(Object? value) async =>
+    value == null ? '' : json.encode(value);

@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -21,6 +21,7 @@ class QueryCallsResponse {
 
   List<CallStateResponseFields> calls;
 
+  /// Duration of the request in milliseconds
   String duration;
 
   ///
@@ -41,10 +42,10 @@ class QueryCallsResponse {
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is QueryCallsResponse &&
-     other.calls == calls &&
-     other.duration == duration &&
-     other.next == next &&
-     other.prev == prev;
+    _deepEquality.equals(other.calls, calls) &&
+    other.duration == duration &&
+    other.next == next &&
+    other.prev == prev;
 
   @override
   int get hashCode =>

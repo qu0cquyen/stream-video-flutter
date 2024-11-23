@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -13,30 +13,13 @@ part of openapi.api;
 class CallRequest {
   /// Returns a new [CallRequest] instance.
   CallRequest({
-    this.createdBy,
-    this.createdById,
     this.custom = const {},
     this.members = const [],
     this.settingsOverride,
     this.startsAt,
     this.team,
+    this.video,
   });
-
-  ///
-  /// Please note: This property should have been non-nullable! Since the specification file
-  /// does not include a default value (using the "default:" property), however, the generated
-  /// source code must fall back to having a nullable type.
-  /// Consider adding a "default:" property in the specification file to hide this note.
-  ///
-  UserRequest? createdBy;
-
-  ///
-  /// Please note: This property should have been non-nullable! Since the specification file
-  /// does not include a default value (using the "default:" property), however, the generated
-  /// source code must fall back to having a nullable type.
-  /// Consider adding a "default:" property in the specification file to hide this note.
-  ///
-  String? createdById;
 
   Map<String, Object> custom;
 
@@ -66,42 +49,38 @@ class CallRequest {
   ///
   String? team;
 
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  bool? video;
+
   @override
   bool operator ==(Object other) => identical(this, other) || other is CallRequest &&
-     other.createdBy == createdBy &&
-     other.createdById == createdById &&
-     other.custom == custom &&
-     other.members == members &&
-     other.settingsOverride == settingsOverride &&
-     other.startsAt == startsAt &&
-     other.team == team;
+    _deepEquality.equals(other.custom, custom) &&
+    _deepEquality.equals(other.members, members) &&
+    other.settingsOverride == settingsOverride &&
+    other.startsAt == startsAt &&
+    other.team == team &&
+    other.video == video;
 
   @override
   int get hashCode =>
     // ignore: unnecessary_parenthesis
-    (createdBy == null ? 0 : createdBy!.hashCode) +
-    (createdById == null ? 0 : createdById!.hashCode) +
     (custom.hashCode) +
     (members.hashCode) +
     (settingsOverride == null ? 0 : settingsOverride!.hashCode) +
     (startsAt == null ? 0 : startsAt!.hashCode) +
-    (team == null ? 0 : team!.hashCode);
+    (team == null ? 0 : team!.hashCode) +
+    (video == null ? 0 : video!.hashCode);
 
   @override
-  String toString() => 'CallRequest[createdBy=$createdBy, createdById=$createdById, custom=$custom, members=$members, settingsOverride=$settingsOverride, startsAt=$startsAt, team=$team]';
+  String toString() => 'CallRequest[custom=$custom, members=$members, settingsOverride=$settingsOverride, startsAt=$startsAt, team=$team, video=$video]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
-    if (this.createdBy != null) {
-      json[r'created_by'] = this.createdBy;
-    } else {
-      json[r'created_by'] = null;
-    }
-    if (this.createdById != null) {
-      json[r'created_by_id'] = this.createdById;
-    } else {
-      json[r'created_by_id'] = null;
-    }
       json[r'custom'] = this.custom;
       json[r'members'] = this.members;
     if (this.settingsOverride != null) {
@@ -118,6 +97,11 @@ class CallRequest {
       json[r'team'] = this.team;
     } else {
       json[r'team'] = null;
+    }
+    if (this.video != null) {
+      json[r'video'] = this.video;
+    } else {
+      json[r'video'] = null;
     }
     return json;
   }
@@ -141,13 +125,12 @@ class CallRequest {
       }());
 
       return CallRequest(
-        createdBy: UserRequest.fromJson(json[r'created_by']),
-        createdById: mapValueOfType<String>(json, r'created_by_id'),
         custom: mapCastOfType<String, Object>(json, r'custom') ?? const {},
         members: MemberRequest.listFromJson(json[r'members']),
         settingsOverride: CallSettingsRequest.fromJson(json[r'settings_override']),
-        startsAt: mapDateTime(json, r'starts_at', ''),
+        startsAt: mapDateTime(json, r'starts_at', r''),
         team: mapValueOfType<String>(json, r'team'),
+        video: mapValueOfType<bool>(json, r'video'),
       );
     }
     return null;

@@ -11,7 +11,7 @@ Official Push Notification Plugin for Stream Video.
                        DESC
   s.homepage         = 'https://github.com/GetStream/stream-video-flutter'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Jc Miñarro' => 'josecarlos@getstream.io' }
+  s.author           = { 'getstream.io' => 'support@getstream.io' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'

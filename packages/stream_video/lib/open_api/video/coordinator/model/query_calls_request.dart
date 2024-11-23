@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -61,12 +61,12 @@ class QueryCallsRequest {
 
   @override
   bool operator ==(Object other) => identical(this, other) || other is QueryCallsRequest &&
-     other.filterConditions == filterConditions &&
-     other.limit == limit &&
-     other.next == next &&
-     other.prev == prev &&
-     other.sort == sort &&
-     other.watch == watch;
+    _deepEquality.equals(other.filterConditions, filterConditions) &&
+    other.limit == limit &&
+    other.next == next &&
+    other.prev == prev &&
+    _deepEquality.equals(other.sort, sort) &&
+    other.watch == watch;
 
   @override
   int get hashCode =>

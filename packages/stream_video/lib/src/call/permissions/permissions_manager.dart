@@ -122,21 +122,26 @@ class PermissionsManager {
     return result;
   }
 
-  Future<Result<None>> startRecording() async {
+  Future<Result<None>> startRecording({
+    String? recordingExternalStorage,
+  }) async {
     if (!hasPermission(CallPermission.startRecordCall)) {
       _logger.w(() => '[startRecording] rejected (no permission)');
       return Result.error('Cannot start recording (no permission)');
     }
     _logger.d(() => '[startRecording] no args');
-    final result = await coordinatorClient.startRecording(callCid);
+    final result = await coordinatorClient.startRecording(
+      callCid,
+      recordingExternalStorage: recordingExternalStorage,
+    );
     _logger.v(() => '[startRecording] result: $result');
     return result;
   }
 
-  Future<Result<List<CallRecording>>> listRecordings(String sessionId) async {
-    _logger.d(() => '[queryRecordings] Call $callCid Session $sessionId');
-    final result = await coordinatorClient.listRecordings(callCid, sessionId);
-    _logger.v(() => '[queryRecordings] result: $result');
+  Future<Result<List<CallRecording>>> listRecordings() async {
+    _logger.d(() => '[listRecordings] Call $callCid');
+    final result = await coordinatorClient.listRecordings(callCid);
+    _logger.v(() => '[listRecordings] result: $result');
     return result;
   }
 
@@ -148,6 +153,35 @@ class PermissionsManager {
     _logger.d(() => '[stopRecording] no args');
     final result = await coordinatorClient.stopRecording(callCid);
     _logger.v(() => '[stopRecording] result: $result');
+    return result;
+  }
+
+  Future<Result<None>> startTranscription() async {
+    if (!hasPermission(CallPermission.startTranscriptionCall)) {
+      _logger.w(() => '[startTranscription] rejected (no permission)');
+      return Result.error('Cannot start transcription (no permission)');
+    }
+    _logger.d(() => '[startTranscription] no args');
+    final result = await coordinatorClient.startTranscription(callCid);
+    _logger.v(() => '[startTranscription] result: $result');
+    return result;
+  }
+
+  Future<Result<List<CallTranscription>>> listTranscriptions() async {
+    _logger.d(() => '[listTranscriptions] Call $callCid');
+    final result = await coordinatorClient.listTranscriptions(callCid);
+    _logger.v(() => '[listTranscriptions] result: $result');
+    return result;
+  }
+
+  Future<Result<None>> stopTranscription() async {
+    if (!hasPermission(CallPermission.startTranscriptionCall)) {
+      _logger.w(() => '[stopTranscription] rejected (no permission)');
+      return Result.error('Cannot stop transcription (no permission)');
+    }
+    _logger.d(() => '[stopTranscription] no args');
+    final result = await coordinatorClient.stopTranscription(callCid);
+    _logger.v(() => '[stopTranscription] result: $result');
     return result;
   }
 

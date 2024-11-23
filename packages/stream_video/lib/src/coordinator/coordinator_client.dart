@@ -1,3 +1,5 @@
+// ignore_for_file: comment_references
+
 import '../../open_api/video/coordinator/api.dart' as open;
 import '../models/call_cid.dart';
 import '../models/call_metadata.dart';
@@ -37,13 +39,10 @@ abstract class CoordinatorClient {
     required String id,
     required PushProvider pushProvider,
     String? pushProviderName,
-    String? userId,
     bool? voipToken,
   });
 
-  Future<Result<List<PushDevice>>> listDevices({
-    required String userId,
-  });
+  Future<Result<List<PushDevice>>> listDevices();
 
   Future<Result<None>> deleteDevice({
     required String id,
@@ -55,6 +54,7 @@ abstract class CoordinatorClient {
     int? membersLimit,
     bool? ringing,
     bool? notify,
+    bool? video,
   });
 
   Future<Result<CallReceivedOrCreatedData>> getOrCreateCall({
@@ -63,20 +63,23 @@ abstract class CoordinatorClient {
     List<open.MemberRequest>? members,
     String? team,
     bool? notify,
+    bool? video,
+    DateTime? startsAt,
+    open.CallSettingsRequest? settingsOverride,
     Map<String, Object> custom = const {},
   });
 
   Future<Result<models.CoordinatorJoined>> joinCall({
     required StreamCallCid callCid,
-    String? datacenterId,
     bool? ringing,
     bool? create,
     String? migratingFrom,
+    bool? video,
   });
 
   Future<Result<None>> acceptCall({required StreamCallCid cid});
 
-  Future<Result<None>> rejectCall({required StreamCallCid cid});
+  Future<Result<None>> rejectCall({required StreamCallCid cid, String? reason});
 
   /// Sends a custom event to the API to notify if we've changed something
   /// in the state of the call.
@@ -131,16 +134,31 @@ abstract class CoordinatorClient {
   });
 
   /// Starts recording for the call described by the given [callCid].
-  Future<Result<None>> startRecording(StreamCallCid callCid);
+  Future<Result<None>> startRecording(
+    StreamCallCid callCid, {
+    String? recordingExternalStorage,
+  });
 
   /// Returns a list of recording for the associated [callCid] and [sessionId].
   Future<Result<List<open.CallRecording>>> listRecordings(
     StreamCallCid callCid,
-    String sessionId,
   );
 
   /// Stops recording for the call described by the given [callCid].
   Future<Result<None>> stopRecording(StreamCallCid callCid);
+
+  /// Starts transcription for the call described by the given [callCid].
+  Future<Result<None>> startTranscription(
+    StreamCallCid callCid, {
+    String? transcriptionExternalStorage,
+  });
+
+  Future<Result<List<open.CallTranscription>>> listTranscriptions(
+    StreamCallCid callCid,
+  );
+
+  /// Stops transcription for the call described by the given [callCid].
+  Future<Result<None>> stopTranscription(StreamCallCid callCid);
 
   /// Starts broadcasting for the call described by the given [callCid].
   Future<Result<String?>> startBroadcasting(StreamCallCid callCid);
@@ -171,6 +189,7 @@ abstract class CoordinatorClient {
     String? prev,
     List<open.SortParamRequest> sorts = const [],
     int? limit,
+    bool? watch,
   });
 
   Future<Result<None>> blockUser({
@@ -221,14 +240,13 @@ abstract class CoordinatorClient {
     StreamTranscriptionSettings? transcription,
     StreamBackstageSettings? backstage,
     StreamGeofencingSettings? geofencing,
+    StreamLimitsSettings? limits,
   });
 
   Future<Result<GuestCreatedData>> loadGuest({
     required String id,
     String? name,
-    String? role,
     String? image,
-    List<String>? teams,
     Map<String, Object> custom = const {},
   });
 }

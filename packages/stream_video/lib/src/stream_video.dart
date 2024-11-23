@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:async/async.dart' as async;
+import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
-import '../open_api/video/coordinator/api.dart' as open;
+import '../open_api/video/coordinator/api.dart';
 import 'call/call.dart';
+import 'call/call_reject_reason.dart';
 import 'call/call_ringing_state.dart';
 import 'call/call_type.dart';
 import 'coordinator/coordinator_client.dart';
@@ -55,7 +57,7 @@ const _idEvents = 1;
 const _idAppState = 2;
 const _idActiveCall = 4;
 
-const _defaultCoordinatorRpcUrl = 'https://video.stream-io-api.com/video';
+const _defaultCoordinatorRpcUrl = 'https://video.stream-io-api.com';
 const _defaultCoordinatorWsUrl = 'wss://video.stream-io-api.com/video/connect';
 
 /// Handler function used for logging.
@@ -260,6 +262,7 @@ class StreamVideo extends Disposable {
   /// Connects the user to the Stream Video service.
   Future<Result<UserToken>> connect({
     bool includeUserDetails = true,
+    bool registerPushDevice = true,
   }) async {
     if (currentUserType == UserType.anonymous) {
       _logger.w(() => '[connect] rejected (anonymous user)');
@@ -269,6 +272,7 @@ class StreamVideo extends Disposable {
     }
     _connectOperation ??= _connect(
       includeUserDetails: includeUserDetails,
+      registerPushDevice: registerPushDevice,
     ).asCancelable();
     return _connectOperation!
         .valueOrDefault(Result.error('connect was cancelled'))
@@ -291,6 +295,7 @@ class StreamVideo extends Disposable {
 
   Future<Result<UserToken>> _connect({
     bool includeUserDetails = false,
+    bool registerPushDevice = true,
   }) async {
     _logger.i(() => '[connect] currentUser.id: ${_state.currentUser.id}');
     if (_connectionState.isConnected) {
@@ -337,7 +342,9 @@ class StreamVideo extends Disposable {
       _subscriptions.add(_idAppState, lifecycle.appState.listen(_onAppState));
 
       // Register device with push notification manager.
-      pushNotificationManager?.registerDevice();
+      if (registerPushDevice) {
+        pushNotificationManager?.registerDevice();
+      }
 
       if (pushNotificationManager != null) {
         _subscriptions.add(
@@ -401,6 +408,7 @@ class StreamVideo extends Disposable {
         event.data.ringing) {
       _logger.v(() => '[onCoordinatorEvent] onCallRinging: ${event.data}');
       final call = _makeCallFromRinging(data: event.data);
+
       _state.incomingCall.value = call;
     } else if (event is CoordinatorConnectedEvent) {
       _logger.i(() => '[onCoordinatorEvent] connected ${event.userId}');
@@ -476,24 +484,17 @@ class StreamVideo extends Disposable {
   }
 
   Call makeCall({
-    @Deprecated('Use callType instead') String? type,
-    StreamCallType? callType,
+    required StreamCallType callType,
     required String id,
     CallPreferences? preferences,
   }) {
-    assert(
-      type != null || callType != null,
-      'Either type or callType must be provided',
-    );
     return Call(
       callCid: StreamCallCid.from(
-        type: callType ?? StreamCallType.fromString(type!),
+        type: callType,
         id: id,
       ),
       coordinatorClient: _client,
-      currentUser: _state.user,
-      setActiveCall: _state.setActiveCall,
-      getActiveCallCid: _state.getActiveCallCid,
+      streamVideo: this,
       retryPolicy: _options.retryPolicy,
       sdpPolicy: _options.sdpPolicy,
       preferences: preferences,
@@ -507,9 +508,7 @@ class StreamVideo extends Disposable {
     return Call.fromRinging(
       data: data,
       coordinatorClient: _client,
-      currentUser: _state.user,
-      setActiveCall: _state.setActiveCall,
-      getActiveCallCid: _state.getActiveCallCid,
+      streamVideo: this,
       retryPolicy: _options.retryPolicy,
       sdpPolicy: _options.sdpPolicy,
       preferences: preferences,
@@ -522,7 +521,8 @@ class StreamVideo extends Disposable {
     String? next,
     String? prev,
     int? limit,
-    List<open.SortParamRequest>? sorts,
+    List<SortParamRequest>? sorts,
+    bool? watch,
   }) {
     return _client.queryCalls(
       filterConditions: filterConditions,
@@ -530,6 +530,7 @@ class StreamVideo extends Disposable {
       limit: limit,
       prev: prev,
       sorts: sorts ?? [],
+      watch: watch,
     );
   }
 
@@ -549,14 +550,13 @@ class StreamVideo extends Disposable {
       id: pushToken,
       pushProvider: pushProvider,
       pushProviderName: pushProviderName,
-      userId: currentUser.id,
       voipToken: voipToken,
     );
   }
 
   /// Gets a list of devices used to receive push notifications.
   Future<Result<List<PushDevice>>> getDevices() {
-    return _client.listDevices(userId: currentUser.id);
+    return _client.listDevices();
   }
 
   /// Removes a device used to receive push notifications.
@@ -565,6 +565,15 @@ class StreamVideo extends Disposable {
   }) {
     _logger.d(() => '[removeDevice] pushToken: $pushToken');
     return _client.deleteDevice(id: pushToken, userId: currentUser.id);
+  }
+
+  Future<Result<List<CallRecording>>> listRecordings(
+    StreamCallCid callCid,
+  ) async {
+    _logger.d(() => '[listRecordings] Call $callCid');
+    final result = await _client.listRecordings(callCid);
+    _logger.v(() => '[listRecordings] result: $result');
+    return result;
   }
 
   StreamSubscription<T>? onCallKitEvent<T extends CallKitEvent>(
@@ -579,10 +588,106 @@ class StreamVideo extends Disposable {
     return manager.on<T>(onEvent);
   }
 
+  CompositeSubscription observeCoreCallKitEvents({
+    void Function(Call)? onCallAccepted,
+  }) {
+    final callKitEventSubscriptions = CompositeSubscription();
+
+    observeCallAcceptCallKitEvent(onCallAccepted: onCallAccepted)
+        ?.addTo(callKitEventSubscriptions);
+
+    observeCallDeclinedCallKitEvent()?.addTo(callKitEventSubscriptions);
+    observeCallEndedCallKitEvent()?.addTo(callKitEventSubscriptions);
+
+    return callKitEventSubscriptions;
+  }
+
+  StreamSubscription<ActionCallAccept>? observeCallAcceptCallKitEvent({
+    void Function(Call)? onCallAccepted,
+  }) {
+    return onCallKitEvent<ActionCallAccept>(
+      (event) => _onCallAccept(
+        event,
+        onCallAccepted: onCallAccepted,
+      ),
+    );
+  }
+
+  StreamSubscription<ActionCallDecline>? observeCallDeclinedCallKitEvent() {
+    return onCallKitEvent<ActionCallDecline>(_onCallDecline);
+  }
+
+  StreamSubscription<ActionCallEnded>? observeCallEndedCallKitEvent() {
+    return onCallKitEvent<ActionCallEnded>(_onCallEnded);
+  }
+
+  Future<void> _onCallAccept(
+    ActionCallAccept event, {
+    void Function(Call)? onCallAccepted,
+  }) async {
+    _logger.d(() => '[onCallAccept] event: $event');
+
+    final uuid = event.data.uuid;
+    final cid = event.data.callCid;
+    if (uuid == null || cid == null) return;
+
+    final call = await consumeIncomingCall(uuid: uuid, cid: cid);
+    final callToJoin = call.getDataOrNull();
+    if (callToJoin == null) return;
+
+    final acceptResult = await callToJoin.accept();
+
+    // Return if cannot accept call
+    if (acceptResult.isFailure) {
+      _logger.d(() => '[onCallAccept] error accepting call: $call');
+      return;
+    }
+
+    onCallAccepted?.call(callToJoin);
+  }
+
+  Future<void> _onCallDecline(ActionCallDecline event) async {
+    _logger.d(() => '[onCallDecline] event: $event');
+
+    final uuid = event.data.uuid;
+    final cid = event.data.callCid;
+    if (uuid == null || cid == null) return;
+
+    final call = await consumeIncomingCall(uuid: uuid, cid: cid);
+    final callToReject = call.getDataOrNull();
+    if (callToReject == null) return;
+
+    final result = await callToReject.reject(
+      reason: CallRejectReason.decline(),
+    );
+
+    if (result is Failure) {
+      _logger.d(() => '[onCallDecline] error rejecting call: ${result.error}');
+    }
+  }
+
+  Future<void> _onCallEnded(ActionCallEnded event) async {
+    final uuid = event.data.uuid;
+    final cid = event.data.callCid;
+    if (uuid == null || cid == null) return;
+
+    final call = activeCall;
+    if (call == null || call.callCid.value != cid) return;
+
+    final result = await call.leave();
+
+    if (result is Failure) {
+      _logger.d(() => '[onCallDecline] error leaving call: ${result.error}');
+    }
+  }
+
   /// Handle incoming VoIP push notifications.
   ///
   /// Returns `true` if the notification was handled, `false` otherwise.
-  Future<bool> handleVoipPushNotification(Map<String, dynamic> payload) async {
+  Future<bool> handleVoipPushNotification(
+    Map<String, dynamic> payload, {
+    bool handleMissedCall = true,
+  }) async {
     _logger.d(() => '[handleVoipPushNotification] payload: $payload');
     final manager = pushNotificationManager;
     if (manager == null) {
@@ -594,17 +699,12 @@ class StreamVideo extends Disposable {
     final sender = payload['sender'] as String?;
     if (sender != 'stream.video') return false;
 
-    // Only handle ringing calls.
-    final type = payload['type'] as String?;
-    if (type != 'call.ring') return false;
-
-    // Return if the payload does not contain a call cid.
     final callCid = payload['call_cid'] as String?;
     if (callCid == null) return false;
 
     final callUUID = const Uuid().v4();
     var callId = const Uuid().v4();
-    var callType = StreamCallType();
+    var callType = StreamCallType.defaultType();
 
     final splitCid = callCid.split(':');
     if (splitCid.length == 2) {
@@ -614,10 +714,25 @@ class StreamVideo extends Disposable {
 
     final createdById = payload['created_by_id'] as String?;
     final createdByName = payload['created_by_display_name'] as String?;
+    final hasVideo = payload['video'] as String?;
+
+    final type = payload['type'] as String?;
+    if (handleMissedCall && type == 'call.missed') {
+      unawaited(
+        manager.showMissedCall(
+          uuid: callUUID,
+          handle: createdById,
+          nameCaller: createdByName,
+          callCid: callCid,
+        ),
+      );
+
+      return true;
+    } else if (type != 'call.ring') {
+      return false;
+    }
 
     final callRingingState = await getCallRingingState(
-      // ignore: deprecated_member_use_from_same_package
-      type: callType.value,
       callType: callType,
       id: callId,
     );
@@ -630,6 +745,7 @@ class StreamVideo extends Disposable {
             handle: createdById,
             nameCaller: createdByName,
             callCid: callCid,
+            hasVideo: hasVideo != 'false',
           ),
         );
         return true;
@@ -638,35 +754,19 @@ class StreamVideo extends Disposable {
       case CallRingingState.rejected:
         return false;
       case CallRingingState.ended:
-        unawaited(
-          manager.showMissedCall(
-            uuid: callUUID,
-            handle: createdById,
-            nameCaller: createdByName,
-            callCid: callCid,
-          ),
-        );
         return false;
     }
   }
 
   Future<CallRingingState> getCallRingingState({
-    @Deprecated('Use callType instead') String? type,
-    StreamCallType? callType,
+    required StreamCallType callType,
     required String id,
   }) async {
-    assert(
-      type != null || callType != null,
-      'Either type or callType must be provided',
-    );
-
     final call = makeCall(
-      // ignore: deprecated_member_use_from_same_package
-      type: callType?.value ?? type,
       callType: callType,
       id: id,
     );
-    final callResult = await call.get();
+    final callResult = await call.get(watch: false);
 
     return callResult.fold(
       failure: (failure) {
@@ -719,7 +819,7 @@ class StreamVideo extends Disposable {
     }
 
     if (_state.incomingCall.valueOrNull?.callCid.value == cid) {
-      return Result.success(_state.incomingCall.value);
+      return Result.success(_state.incomingCall.value!);
     }
 
     final callCid = StreamCallCid(cid: cid);

@@ -1,7 +1,7 @@
 //
 // AUTO-GENERATED FILE, DO NOT MODIFY!
 //
-// @dart=2.12
+// @dart=2.18
 
 // ignore_for_file: unused_element, unused_import
 // ignore_for_file: always_put_required_named_parameters_first
@@ -20,6 +20,7 @@ class APIError {
     this.exceptionFields = const {},
     required this.message,
     required this.moreInfo,
+    this.unrecoverable,
   });
 
   /// Response HTTP status code
@@ -43,15 +44,25 @@ class APIError {
   /// URL with additional information
   String moreInfo;
 
+  /// Flag that indicates if the error is unrecoverable, requests that return unrecoverable errors should not be retried, this error only applies to the request that caused it
+  ///
+  /// Please note: This property should have been non-nullable! Since the specification file
+  /// does not include a default value (using the "default:" property), however, the generated
+  /// source code must fall back to having a nullable type.
+  /// Consider adding a "default:" property in the specification file to hide this note.
+  ///
+  bool? unrecoverable;
+
   @override
   bool operator ==(Object other) => identical(this, other) || other is APIError &&
-     other.statusCode == statusCode &&
-     other.code == code &&
-     other.details == details &&
-     other.duration == duration &&
-     other.exceptionFields == exceptionFields &&
-     other.message == message &&
-     other.moreInfo == moreInfo;
+    other.statusCode == statusCode &&
+    other.code == code &&
+    _deepEquality.equals(other.details, details) &&
+    other.duration == duration &&
+    _deepEquality.equals(other.exceptionFields, exceptionFields) &&
+    other.message == message &&
+    other.moreInfo == moreInfo &&
+    other.unrecoverable == unrecoverable;
 
   @override
   int get hashCode =>
@@ -62,10 +73,11 @@ class APIError {
     (duration.hashCode) +
     (exceptionFields.hashCode) +
     (message.hashCode) +
-    (moreInfo.hashCode);
+    (moreInfo.hashCode) +
+    (unrecoverable == null ? 0 : unrecoverable!.hashCode);
 
   @override
-  String toString() => 'APIError[statusCode=$statusCode, code=$code, details=$details, duration=$duration, exceptionFields=$exceptionFields, message=$message, moreInfo=$moreInfo]';
+  String toString() => 'APIError[statusCode=$statusCode, code=$code, details=$details, duration=$duration, exceptionFields=$exceptionFields, message=$message, moreInfo=$moreInfo, unrecoverable=$unrecoverable]';
 
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{};
@@ -76,6 +88,11 @@ class APIError {
       json[r'exception_fields'] = this.exceptionFields;
       json[r'message'] = this.message;
       json[r'more_info'] = this.moreInfo;
+    if (this.unrecoverable != null) {
+      json[r'unrecoverable'] = this.unrecoverable;
+    } else {
+      json[r'unrecoverable'] = null;
+    }
     return json;
   }
 
@@ -100,13 +117,14 @@ class APIError {
       return APIError(
         statusCode: mapValueOfType<int>(json, r'StatusCode')!,
         code: mapValueOfType<int>(json, r'code')!,
-        details: json[r'details'] is List
-            ? (json[r'details'] as List).cast<int>()
+        details: json[r'details'] is Iterable
+            ? (json[r'details'] as Iterable).cast<int>().toList(growable: false)
             : const [],
         duration: mapValueOfType<String>(json, r'duration')!,
         exceptionFields: mapCastOfType<String, String>(json, r'exception_fields') ?? const {},
         message: mapValueOfType<String>(json, r'message')!,
         moreInfo: mapValueOfType<String>(json, r'more_info')!,
+        unrecoverable: mapValueOfType<bool>(json, r'unrecoverable'),
       );
     }
     return null;

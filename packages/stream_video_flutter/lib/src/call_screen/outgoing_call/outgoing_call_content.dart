@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../stream_video_flutter.dart';
-import '../../utils/extensions.dart';
 import '../common/call_background.dart';
 import '../common/calling_participants.dart';
 import '../common/participant_avatars.dart';
@@ -104,52 +103,51 @@ class _StreamOutgoingCallContentState extends State<StreamOutgoingCallContent> {
         widget.callState.otherParticipants.map((e) => e.toUserInfo()).toList();
 
     final child = Material(
-        color: Colors.transparent,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Spacer(),
-            widget.participantsAvatarBuilder?.call(
-                  context,
-                  widget.call,
-                  widget.callState,
-                  participants,
-                ) ??
-                ParticipantAvatars(
+      color: Colors.transparent,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Spacer(),
+          widget.participantsAvatarBuilder?.call(
+                context,
+                widget.call,
+                widget.callState,
+                participants,
+              ) ??
+              ParticipantAvatars(
+                participants: participants,
+                singleParticipantAvatarTheme: singleParticipantAvatarTheme,
+                multipleParticipantAvatarTheme: multipleParticipantAvatarTheme,
+              ),
+          widget.participantsDisplayNameBuilder?.call(
+                context,
+                widget.call,
+                widget.callState,
+                participants,
+              ) ??
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 64, vertical: 32),
+                child: CallingParticipants(
                   participants: participants,
-                  singleParticipantAvatarTheme: singleParticipantAvatarTheme,
-                  multipleParticipantAvatarTheme:
-                      multipleParticipantAvatarTheme,
+                  singleParticipantTextStyle: singleParticipantTextStyle,
+                  multipleParticipantTextStyle: multipleParticipantTextStyle,
                 ),
-            widget.participantsDisplayNameBuilder?.call(
-                  context,
-                  widget.call,
-                  widget.callState,
-                  participants,
-                ) ??
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 64, vertical: 32),
-                  child: CallingParticipants(
-                    participants: participants,
-                    singleParticipantTextStyle: singleParticipantTextStyle,
-                    multipleParticipantTextStyle: multipleParticipantTextStyle,
-                  ),
-                ),
-            Text(
-              'Calling…',
-              style: callingLabelTextStyle,
-            ),
-            const Spacer(),
-            OutgoingCallControls(
-              isMicrophoneEnabled: connectOptions.microphone.isEnabled,
-              isCameraEnabled: connectOptions.camera.isEnabled,
-              onCancelCallTap: () => _onCancelCallTap(context),
-              onMicrophoneTap: () => _onMicrophoneTap(context),
-              onCameraTap: () => _onCameraTap(context),
-            ),
-          ],
-        ),
+              ),
+          Text(
+            'Calling…',
+            style: callingLabelTextStyle,
+          ),
+          const Spacer(),
+          OutgoingCallControls(
+            isMicrophoneEnabled: connectOptions.microphone.isEnabled,
+            isCameraEnabled: connectOptions.camera.isEnabled,
+            onCancelCallTap: () => _onCancelCallTap(context),
+            onMicrophoneTap: () => _onMicrophoneTap(context),
+            onCameraTap: () => _onCameraTap(context),
+          ),
+        ],
+      ),
     );
 
     return widget.callBackgroundBuilder?.call(
@@ -161,15 +159,14 @@ class _StreamOutgoingCallContentState extends State<StreamOutgoingCallContent> {
         CallBackground(
           participants: participants,
           child: child,
-    );
+        );
   }
 
   Future<void> _onCancelCallTap(BuildContext context) async {
     if (widget.onCancelCallTap != null) {
       widget.onCancelCallTap!();
     } else {
-      await widget.call.end();
-      await widget.call.leave();
+      await widget.call.reject(reason: CallRejectReason.cancel());
     }
   }
 

@@ -7,16 +7,16 @@ extension SfuParticipantX on SfuParticipant {
   CallParticipantState toParticipantState(CallState state) {
     final isLocal = userId == state.currentUserId;
     final existing = state.callParticipants.firstWhereOrNull(
-      (it) => it.userId == userId && it.sessionId == sessionId,
+      (it) => it.userId == userId,
     );
 
     final existingName = existing?.name ?? '';
-    final existingRole = existing?.role ?? '';
+    final existingRoles = existing?.roles ?? [];
     final existingImage = existing?.image ?? '';
 
     return CallParticipantState(
       userId: userId,
-      role: existingRole,
+      roles: roles.isNotEmpty ? roles : existingRoles,
       name: userName.ifEmpty(() => existingName),
       custom: custom,
       image: userImage.ifEmpty(() => existingImage),

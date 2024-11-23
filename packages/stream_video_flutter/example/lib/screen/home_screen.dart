@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:stream_video_flutter/stream_video_flutter.dart';
 
+import '../core/auth_repository.dart';
 import 'home_tabs/join_call_tab.dart';
 import 'home_tabs/start_call_tab.dart';
 
@@ -17,15 +18,18 @@ class _HomeScreenState extends State<HomeScreen> {
   final StreamVideo _streamVideo = StreamVideo.instance;
   late final currentUser = _streamVideo.currentUser;
 
-  StreamSubscription<Call>? _onIncomingCallSubscription;
+  StreamSubscription<Call?>? _onIncomingCallSubscription;
 
   @override
   void initState() {
     super.initState();
     _onIncomingCallSubscription?.cancel();
-    _onIncomingCallSubscription = _streamVideo.state.incomingCall.listen(
-      _onNavigateToCall,
-    );
+    _onIncomingCallSubscription =
+        _streamVideo.state.incomingCall.listen((call) {
+      if (call != null) {
+        _onNavigateToCall(call);
+      }
+    });
   }
 
   @override
@@ -73,6 +77,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _logout() async {
     await _streamVideo.disconnect();
+    final authRepository = await AuthRepository.getInstance();
+    await authRepository.clearCredentials();
 
     if (mounted) {
       Navigator.of(context).pop();
@@ -89,6 +95,12 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context) => StreamCallContainer(
           call: call,
           callConnectOptions: options,
+          onDeclineCallTap: () async {
+            await call.reject(reason: CallRejectReason.decline());
+          },
+          onCancelCallTap: () async {
+            await call.reject(reason: CallRejectReason.cancel());
+          },
         ),
       ),
     );
